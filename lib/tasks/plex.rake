@@ -33,8 +33,8 @@ namespace :plex do
           message += " (#{event.fetch(:stop_reason)})" if event[:stop_reason].present?
           puts message
         end
-        checkpoint = ShareSnapshot.latest_for(machine_identifier)
-        puts "Checkpoint snapshot ##{checkpoint.id} saved" if checkpoint&.id
+        checkpoint_id = ShareSnapshot.where(machine_identifier: machine_identifier).latest_first.pick(:id)
+        puts "Checkpoint snapshot ##{checkpoint_id} saved" if checkpoint_id
         if event[:stop_reason].present? && event[:remaining_labels].present?
           puts "Unmatched users: #{event[:remaining_labels].to_sentence}"
         end
@@ -100,7 +100,7 @@ namespace :plex do
     puts "History window: #{viewed_after ? "#{ENV['PLEX_HISTORY_DAYS']}d" : 'all'}"
 
     loop do
-      break if max_pages && page >= max_pages
+      break if max_pages && pages_scanned >= max_pages
 
       history = fetch_history_page_with_retries(client, page: page, page_size: page_size)
       unless history
