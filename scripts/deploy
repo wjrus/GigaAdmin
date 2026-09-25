@@ -27,8 +27,8 @@ require_clean_tracked_worktree() {
 }
 
 update_code() {
-  if [[ ! -d .git ]]; then
-    log "Skipping git pull; .git directory not present"
+  if [[ ! -e .git ]]; then
+    log "Skipping git pull; Git checkout not present"
     return
   fi
 
@@ -39,7 +39,7 @@ update_code() {
 }
 
 set_app_revision() {
-  if [[ -d .git ]]; then
+  if [[ -e .git ]]; then
     APP_REVISION="$(git rev-parse --short HEAD)"
   else
     APP_REVISION="${APP_REVISION:-unknown}"
@@ -98,7 +98,7 @@ wait_for_healthy() {
 
 wait_for_http() {
   local timeout_seconds="$1"
-  local elapsed=0
+  local deadline=$((SECONDS + timeout_seconds))
   local app_host
   local port
 
@@ -106,14 +106,13 @@ wait_for_http() {
   app_host="${app_host:-plexadmin.example.com}"
   port="${PLEX_ADMIN_PORT:-3010}"
 
-  while (( elapsed < timeout_seconds )); do
-    if curl -fsSI -H "Host: ${app_host}" "http://127.0.0.1:${port}/up" >/dev/null; then
+  while (( SECONDS < deadline )); do
+    if curl --connect-timeout 2 --max-time 3 -fsSI -H "Host: ${app_host}" "http://127.0.0.1:${port}/up" >/dev/null; then
       printf "http://127.0.0.1:%s/up responded for Host: %s\n" "$port" "$app_host"
       return 0
     fi
 
     sleep 1
-    elapsed=$((elapsed + 1))
   done
 
   compose logs --tail=120 web >&2 || true
@@ -127,6 +126,7 @@ Usage:
 
 Builds the production image, starts PostgreSQL, runs db:prepare, starts the web
 container, and verifies the local reverse-proxy target.
+An already-running now-playing sampler is updated with the new image too.
 
 Set PLEX_ADMIN_PORT=3011 ./scripts/deploy to bind a different localhost port.
 USAGE
@@ -135,8 +135,24 @@ fi
 
 require_file .env.production
 require_file .env.postgres
+for command in docker git curl; do
+  command -v "$command" >/dev/null || fail "required command not found: $command"
+done
+
+# mkdir is atomic and works with the stock macOS and Linux toolchains.
+mkdir -p tmp
+mkdir tmp/deploy.lock 2>/dev/null || fail "another deploy holds tmp/deploy.lock; remove it only after confirming that deploy has stopped"
+trap 'rmdir "$ROOT/tmp/deploy.lock"' EXIT
+
 update_code
 set_app_revision
+compose config --quiet
+
+services=(web daily_refresh)
+running_services="$(compose ps --status running --services)"
+if [[ $'\n'"$running_services"$'\n' == *$'\nnow_playing_sampler\n'* ]]; then
+  services+=(now_playing_sampler)
+fi
 
 log "Building app image"
 compose build web
@@ -148,8 +164,8 @@ wait_for_healthy db 90
 log "Preparing databases"
 compose run --rm web ./bin/rails db:prepare
 
-log "Starting web and daily refresh"
-compose up -d --no-deps web daily_refresh
+log "Starting app services"
+compose up -d --no-deps "${services[@]}"
 wait_for_healthy web 120
 wait_for_http 30
 

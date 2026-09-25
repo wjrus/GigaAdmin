@@ -17,7 +17,7 @@ Examples:
   ./scripts/logs all
 
 When no service is given, this follows web logs. The shorthand "all" expands to
-web, daily_refresh, and db.
+web, daily_refresh, now_playing_sampler, and db.
 USAGE
   exit 0
 fi
@@ -29,7 +29,7 @@ fi
 services=()
 for service in "$@"; do
   case "$service" in
-    all) services+=(web daily_refresh db) ;;
+    all) services+=(web daily_refresh now_playing_sampler db) ;;
     *) services+=("$service") ;;
   esac
 done

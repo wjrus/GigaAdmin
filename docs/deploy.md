@@ -92,10 +92,15 @@ Follow logs:
 ./scripts/logs all
 ```
 
-The deploy script runs `git pull --ff-only`, builds the image, prepares the
-databases, starts `web` and `daily_refresh`, and verifies `/up` through the host
-port. The `now_playing_sampler` service is defined in Compose but is not started
-by `scripts/deploy`; start it explicitly if you want current-session samples:
+The deploy script runs `git pull --ff-only`, validates Compose configuration,
+builds the image, prepares the databases, starts `web` and `daily_refresh`, and
+verifies `/up` through the host port with bounded request timeouts. A checkout
+lock prevents overlapping deployments. After an unclean shutdown, remove
+`tmp/deploy.lock` only after confirming that no deploy is still running.
+
+The `now_playing_sampler` service is opt-in; start it explicitly if you want
+current-session samples. Subsequent deploys update an already-running sampler
+to the new image:
 
 ```sh
 docker compose up -d now_playing_sampler
