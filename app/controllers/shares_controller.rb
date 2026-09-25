@@ -38,7 +38,7 @@ class SharesController < ApplicationController
 
   def create
     invited_email = params[:invited_email].to_s.strip
-    library_ids = Array(params[:library_ids]).compact_blank
+    library_ids = requested_library_ids
     raise Plex::ConfigurationError, "Enter a Plex username or email." if invited_email.blank?
     raise Plex::ConfigurationError, "Choose at least one library to share." if library_ids.empty?
 
@@ -73,7 +73,7 @@ class SharesController < ApplicationController
   end
 
   def update
-    library_ids = Array(params[:library_ids]).compact_blank
+    library_ids = requested_library_ids
     snapshot = ShareSnapshot.latest_for(required_machine_identifier)
     current_user = snapshot_user_for_share(snapshot, params[:share_id])
     previous_libraries = current_user_libraries(current_user)
@@ -118,6 +118,8 @@ class SharesController < ApplicationController
   def destroy
     snapshot = ShareSnapshot.latest_for(required_machine_identifier)
     current_user = snapshot_user_for_share(snapshot, params[:share_id])
+    raise Plex::ConfigurationError, "Share not found in the latest snapshot. Reload before removing access." unless current_user
+
     previous_libraries = current_user_libraries(current_user)
     client = Plex::Client.from_env
     client.remove_shared_server(required_machine_identifier, params[:share_id])
@@ -400,7 +402,20 @@ class SharesController < ApplicationController
 
   def libraries_for_ids(snapshot, library_ids)
     libraries_by_id = snapshot&.libraries.to_a.index_by { |library| library["id"].to_s }
-    library_ids.filter_map { |library_id| libraries_by_id[library_id.to_s] }
+    library_ids.map do |library_id|
+      libraries_by_id.fetch(library_id.to_s) do
+        raise Plex::ConfigurationError, "A selected library is no longer in the latest snapshot. Reload before saving."
+      end
+    end
+  end
+
+  def requested_library_ids
+    ids = params[:library_ids] || []
+    unless ids.is_a?(Array) && ids.all? { |id| id.is_a?(String) }
+      raise Plex::ConfigurationError, "Invalid library selection. Reload before saving."
+    end
+
+    ids.compact_blank.uniq
   end
 
   def share_redirect_path

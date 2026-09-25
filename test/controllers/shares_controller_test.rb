@@ -171,6 +171,48 @@ class SharesControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ "Movies" ], log.libraries_removed
   end
 
+  test "unknown shares cannot be removed through an unchecked remote request" do
+    client = FakeClient.new
+    with_plex_client(client) do
+      assert_no_difference [ "ShareSnapshot.count", "ShareAuditLog.count" ] do
+        delete share_path("unknown-share")
+      end
+    end
+
+    assert_redirected_to root_path
+    assert_nil client.removed_share_id
+    assert_match "Share not found", flash[:alert]
+  end
+
+  test "unknown library selections cannot create an invite or diverge from the local audit" do
+    client = FakeClient.new
+    with_plex_client(client) do
+      assert_no_difference [ "ShareSnapshot.count", "ShareAuditLog.count" ] do
+        post shares_path, params: { invited_email: "friend@example.com", library_ids: [ "1", "missing" ] }
+      end
+    end
+
+    assert_redirected_to root_path
+    assert_nil client.created_invite
+    assert_match "selected library", flash[:alert]
+  end
+
+  test "unknown and malformed library selections cannot mutate a share" do
+    [ [ "1", "missing" ], { "nested" => "1" } ].each do |library_ids|
+      client = FakeClient.new
+      with_plex_client(client) do
+        assert_no_difference [ "ShareSnapshot.count", "ShareAuditLog.count" ] do
+          patch share_path("99"), params: { library_ids: library_ids, library_version: ShareSnapshot.library_version([ "1" ]) }
+        end
+      end
+
+      assert_redirected_to root_path
+      assert_nil client.updated_share
+      assert_nil client.removed_share_id
+      assert_match "Reload before saving", flash[:alert]
+    end
+  end
+
   test "successful invitation is logged and cached even when refresh fails" do
     client = FakeClient.new
     client.define_singleton_method(:server) { |_| raise Plex::Client::Error, "Synthetic timeout" }
