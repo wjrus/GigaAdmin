@@ -44,6 +44,28 @@ class UsersControllerTest < ActionDispatch::IntegrationTest
     assert_select "a[aria-label*='Last Streamed, sorted descending']"
   end
 
+  test "users without playback stay last in either last-streamed sort direction" do
+    snapshot = share_snapshots(:one)
+    template = snapshot.users.first
+    snapshot.update!(users: [
+      template.merge("id" => "never", "username" => "Never played", "last_streamed_at" => nil),
+      template.merge("id" => "older", "username" => "Older playback", "last_streamed_at" => 2.days.ago.to_i),
+      template.merge("id" => "recent", "username" => "Recent playback", "last_streamed_at" => 1.day.ago.to_i)
+    ])
+
+    {
+      "asc" => [ "Older playback", "Recent playback", "Never played" ],
+      "desc" => [ "Recent playback", "Older playback", "Never played" ]
+    }.each do |direction, expected_names|
+      get users_path(sort: "last_streamed", direction: direction)
+
+      assert_response :success
+      assert_select "tbody tr td:first-child" do |cells|
+        assert_equal expected_names, cells.map { |cell| cell.text.strip }
+      end
+    end
+  end
+
   test "loads latest local history for all accounts with one query" do
     8.times do |index|
       %w[Older Latest].each_with_index do |label, offset|

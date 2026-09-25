@@ -421,7 +421,7 @@ class UsersController < ApplicationController
 
   def sort_users(users)
     sorted_users = users.sort_by { |user| sort_key_for(user) }
-    @direction == "desc" ? sorted_users.reverse : sorted_users
+    @sort != "last_streamed" && @direction == "desc" ? sorted_users.reverse : sorted_users
   end
 
   def filter_params
@@ -608,7 +608,7 @@ class UsersController < ApplicationController
     when "last_streamed"
       [
         user.last_streamed_at.present? ? 0 : 1,
-        user.last_streamed_at.to_i,
+        @direction == "desc" ? -user.last_streamed_at.to_i : user.last_streamed_at.to_i,
         user.label.downcase
       ]
     else
