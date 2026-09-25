@@ -15,7 +15,7 @@ class DeployScriptTest < ActiveSupport::TestCase
     File.write(File.join(@directory, ".git"), "gitdir: /unused-test-path\n")
     stub_command("git", 'if [[ "$1" == rev-parse ]]; then echo abc123; fi')
     stub_command("docker", <<~BASH)
-      if [[ "$*" == "compose ps --status running --services" ]]; then
+      if [[ "$*" == "compose ps --status running --status restarting --services" ]]; then
         printf '%s\\n' "${TEST_RUNNING_SERVICES:-web}"
       elif [[ "$*" == "compose ps -q"* ]]; then
         echo fixture-container

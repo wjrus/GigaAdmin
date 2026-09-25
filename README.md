@@ -162,6 +162,10 @@ page after it. Re-reading saved pages updates their metadata without duplicating
 events. Normal refresh failures also remain failures rather than reporting a
 successful partial refresh; pages already saved are retained.
 
+`PLEX_HISTORY_MAX_PAGES` limits pages scanned during the current backfill,
+independently of `PLEX_HISTORY_START_PAGE`. For example, a start page of `179`
+with a maximum of `5` scans pages `179` through `183`.
+
 In Docker Compose production, the `daily_refresh` service runs the same rake task
 once per day with `PLEX_DAILY_REFRESH_DAYS=1`. Set `PLEX_DAILY_REFRESH_AT` in
 `.env.production` to choose the daily wall-clock time, using `HH:MM`.

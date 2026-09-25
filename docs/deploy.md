@@ -3,7 +3,7 @@
 Production is a small Docker Compose stack. The existing deployment stays at:
 
 ```sh
-/apps/plex
+$HOME/apps/plex
 ```
 
 New checkouts can live under `$HOME/apps/plex/GigaAdmin`. The checkout name is
@@ -118,6 +118,14 @@ to the new image:
 docker compose up -d now_playing_sampler
 ```
 
+The previous image can be tagged before upgrading, for example
+`docker tag plex-admin:production gigaadmin:pre-upgrade` for the first GigaAdmin
+release. Keep that tag and the previous Git revision until health and application
+checks pass. This release has no database migrations. To roll back its code,
+restore the previous revision in a clean checkout and run the deployment steps
+with that image without pulling the newer revision again. Never remove volumes
+as part of a code rollback.
+
 ## Dependency Updates
 
 Ruby is pinned to 3.4.10 in both `.ruby-version` and the Dockerfile. Rebuild the
@@ -179,13 +187,13 @@ On your development machine:
 cd /path/to/plex/GigaAdmin
 mkdir -p tmp
 pg_dump --format=custom --no-owner --no-acl --file=tmp/plex_development.dump plex_development
-scp tmp/plex_development.dump <server>:/apps/plex/tmp/plex_development.dump
+scp tmp/plex_development.dump <server>:apps/plex/tmp/plex_development.dump
 ```
 
 On the server:
 
 ```sh
-cd /apps/plex
+cd "$HOME/apps/plex"
 ./scripts/deploy
 docker compose stop web
 docker compose cp tmp/plex_development.dump db:/tmp/plex_development.dump

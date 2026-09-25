@@ -149,7 +149,7 @@ set_app_revision
 compose config --quiet
 
 services=(web daily_refresh)
-running_services="$(compose ps --status running --services)"
+running_services="$(compose ps --status running --status restarting --services)"
 if [[ $'\n'"$running_services"$'\n' == *$'\nnow_playing_sampler\n'* ]]; then
   services+=(now_playing_sampler)
 fi
