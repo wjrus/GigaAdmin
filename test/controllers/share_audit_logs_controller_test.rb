@@ -48,6 +48,28 @@ class ShareAuditLogsControllerTest < ActionDispatch::IntegrationTest
     assert_select "td", text: /added Movies to Viewer/, count: 0
   end
 
+  test "invalid date filters return no entries instead of failing or widening the search" do
+    [ { from: "not-a-date" }, { to: "not-a-date" }, { to: "2026-02-30" } ].each do |filter|
+      get share_audit_logs_path(filter)
+
+      assert_response :success
+      assert_select "td", text: /added Movies to Viewer/, count: 0
+    end
+  end
+
+  test "date filters include the full local end date and exclude the following day" do
+    Time.use_zone("America/Detroit") do
+      ShareAuditLog.create!(action: "user_note_updated", admin_email: "admin@example.com", target_label: "Late evening", created_at: Time.zone.local(2026, 5, 24, 23, 59, 59))
+      ShareAuditLog.create!(action: "user_note_updated", admin_email: "admin@example.com", target_label: "Next morning", created_at: Time.zone.local(2026, 5, 25))
+
+      get share_audit_logs_path(from: "2026-05-24", to: "2026-05-24")
+
+      assert_response :success
+      assert_select "td", text: /updated notes for Late evening/
+      assert_select "td", text: /updated notes for Next morning/, count: 0
+    end
+  end
+
   test "exports audit log csv" do
     get share_audit_logs_path(format: :csv)
 

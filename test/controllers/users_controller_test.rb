@@ -44,6 +44,36 @@ class UsersControllerTest < ActionDispatch::IntegrationTest
     assert_select "a[aria-label*='Last Streamed, sorted descending']"
   end
 
+  test "loads latest local history for all accounts with one query" do
+    8.times do |index|
+      %w[Older Latest].each_with_index do |label, offset|
+        PlexStreamEvent.create!(
+          machine_identifier: "machine-one",
+          account_id: "local-#{index}",
+          viewed_at: 2.days.ago + offset.hours,
+          full_title: "#{label} local stream #{index}",
+          media_type: "movie"
+        )
+      end
+    end
+    PlexStreamEvent.create!(machine_identifier: "other-machine", account_id: "foreign-user", viewed_at: Time.current, full_title: "Foreign stream")
+    queries = []
+    subscriber = ->(_name, _start, _finish, _id, payload) do
+      queries << payload[:sql] if payload[:sql].match?(/SELECT.*FROM "plex_stream_events"/m)
+    end
+
+    ActiveSupport::Notifications.subscribed(subscriber, "sql.active_record") do
+      get users_path(q: "local-")
+    end
+
+    assert_response :success
+    assert_equal 1, queries.size, queries.join("\n")
+    assert_select "p", text: "8 users shown"
+    assert_select "td", text: /Latest local stream 0/
+    assert_select "td", text: /Older local stream/, count: 0
+    assert_select "td", text: /Foreign stream/, count: 0
+  end
+
   test "shows user details" do
     ShareSnapshot.create!(
       machine_identifier: "machine-one",

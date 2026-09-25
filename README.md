@@ -1,10 +1,19 @@
-# Plex Shares
+# GigaAdmin
 
 Small Rails app for Plex server admins. It shows shared-library access, pending
 invites, local notes, playback stats, stream history, and current sessions.
 
 The app stores Plex API results in PostgreSQL so normal page loads do not hit
 Plex. Use the Maintenance page when you need to refresh Plex data on demand.
+
+Repository: [wjrus/GigaAdmin](https://github.com/wjrus/GigaAdmin).
+The local workspace is organized as `plex/GigaAdmin`, with `plex` reserved for
+related projects. Run this app's commands from the `GigaAdmin` directory.
+
+Upgrading from Plex Shares preserves the existing `PLEX_*` settings, database
+names, session cookie, and Compose project name (`plex`). The directory and app
+rename does not require a database rename or migration. Keep any existing
+`COMPOSE_PROJECT_NAME` override when upgrading.
 
 ## Setup
 
@@ -55,8 +64,8 @@ PLEX_HISTORY_PAGE_SIZE=1000
 PLEX_HISTORY_MAX_PAGES=all
 PLEX_HISTORY_DAYS=730
 PLEX_HISTORY_RETRIES=8
-PLEX_CLIENT_IDENTIFIER=plex-shares-local
-PLEX_CLIENT_NAME=Plex Shares
+PLEX_CLIENT_IDENTIFIER=gigaadmin-local
+PLEX_CLIENT_NAME=GigaAdmin
 PLEX_NOW_PLAYING_SAMPLE_INTERVAL=60
 PLEX_NOW_PLAYING_RETENTION_DAYS=90
 PLEX_DAILY_REFRESH_AT=04:15

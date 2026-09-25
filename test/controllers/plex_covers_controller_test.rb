@@ -62,6 +62,66 @@ class PlexCoversControllerTest < ActionDispatch::IntegrationTest
     assert_response :not_found
   end
 
+  test "rejects metadata traversal and non-artwork endpoints without contacting Plex" do
+    paths = [
+      "/library/metadata/1",
+      "/library/metadata/../../status/sessions",
+      "/library/metadata/1/thumb/../../../../status/sessions",
+      "/library/metadata/1/thumb/%2e%2e/%2e%2e/status/sessions",
+      "/photo/:/transcode/../status/sessions"
+    ]
+    paths.each do |path|
+      with_cover_response(nil, on_request: ->(_) { flunk "Plex must not receive #{path}" }) do
+        get plex_cover_path(path: path)
+      end
+      assert_response :not_found
+    end
+  end
+
+  test "rejects transcode URLs outside local artwork without contacting Plex" do
+    sources = [
+      "http://other.example/library/metadata/1/thumb/123",
+      "http://127.0.0.1:32400/library/metadata/1/thumb/123",
+      "//other.example/library/metadata/1/thumb/123",
+      "file:///etc/passwd",
+      "/status/sessions",
+      "/library/metadata/1/thumb/../../../status/sessions",
+      "/library/metadata/1/thumb/123?url=http://other.example"
+    ]
+    sources.each do |source|
+      path = "/photo/:/transcode?#{URI.encode_www_form(url: source, width: 300)}"
+      with_cover_response(nil, on_request: ->(_) { flunk "Plex must not receive #{source}" }) do
+        get plex_cover_path(path: path)
+      end
+      assert_response :not_found
+    end
+  end
+
+  test "rejects missing and ambiguous transcode sources" do
+    [ "width=300", "url=%2Flibrary%2Fmetadata%2F1%2Fthumb&url=http%3A%2F%2Fother.example" ].each do |query|
+      with_cover_response(nil, on_request: ->(_) { flunk "Plex must not receive an ambiguous source" }) do
+        get plex_cover_path(path: "/photo/:/transcode?#{query}")
+      end
+      assert_response :not_found
+    end
+  end
+
+  test "proxies local transcodes while replacing untrusted token parameters" do
+    response = Net::HTTPOK.new("1.1", "200", "OK")
+    response["Content-Type"] = "image/jpeg"
+    response.define_singleton_method(:read_body) { |&block| block.call("jpeg-bytes") }
+    [ "/library/metadata/1/thumb/123", "http://plex.example:32400/library/metadata/1/thumb/123" ].each do |source|
+      query = URI.encode_www_form(url: source, width: 300, "x-plex-token" => "untrusted")
+      request_uri = nil
+      with_cover_response(response, on_request: ->(request) { request_uri = request.uri }) do
+        get plex_cover_path(path: "/photo/:/transcode?#{query}")
+      end
+      assert_response :success
+      assert_equal "/photo/:/transcode", request_uri.path
+      assert_equal [ [ "url", "/library/metadata/1/thumb/123" ], [ "width", "300" ], [ "X-Plex-Token", "token" ] ], URI.decode_www_form(request_uri.query)
+    end
+  end
+
   test "rejects svg cover responses" do
     response = Net::HTTPOK.new("1.1", "200", "OK")
     response["Content-Type"] = "image/svg+xml"
@@ -113,9 +173,12 @@ class PlexCoversControllerTest < ActionDispatch::IntegrationTest
 
   private
 
-  def with_cover_response(response)
+  def with_cover_response(response, on_request: nil)
     http = Object.new
-    http.define_singleton_method(:request) { |_request, &block| block.call(response) }
+    http.define_singleton_method(:request) do |request, &block|
+      on_request&.call(request)
+      block.call(response)
+    end
     original = Net::HTTP.method(:start)
     Net::HTTP.define_singleton_method(:start) { |*_, **_, &block| block.call(http) }
     yield

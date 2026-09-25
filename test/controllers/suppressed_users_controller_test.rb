@@ -46,6 +46,27 @@ class SuppressedUsersControllerTest < ActionDispatch::IntegrationTest
     assert_select "form[action='#{user_suppression_path("42")}']"
   end
 
+  test "loads latest streams for all suppressed accounts with one query" do
+    8.times do |index|
+      PlexUserNote.create!(plex_user_id: "hidden-#{index}", username: "Hidden #{index}", suppressed: true)
+      PlexStreamEvent.create!(machine_identifier: "machine-one", account_id: "hidden-#{index}", viewed_at: 1.day.ago, full_title: "Latest hidden stream #{index}")
+      PlexStreamEvent.create!(machine_identifier: "machine-one", account_id: "hidden-#{index}", viewed_at: 2.days.ago, full_title: "Older hidden stream #{index}")
+    end
+    queries = []
+    subscriber = ->(_name, _start, _finish, _id, payload) do
+      queries << payload[:sql] if payload[:sql].match?(/SELECT.*FROM "plex_stream_events"/m)
+    end
+
+    ActiveSupport::Notifications.subscribed(subscriber, "sql.active_record") do
+      get suppressed_users_path
+    end
+
+    assert_response :success
+    assert_equal 1, queries.size, queries.join("\n")
+    assert_select "td", text: /Latest hidden stream/, count: 8
+    assert_select "td", text: /Older hidden stream/, count: 0
+  end
+
   private
 
   def sign_in

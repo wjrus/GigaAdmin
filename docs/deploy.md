@@ -1,9 +1,21 @@
-# Deploy
+# Deploy GigaAdmin
 
-Production is a small Docker Compose stack intended to live at:
+Production is a small Docker Compose stack. The existing deployment stays at:
 
 ```sh
 /apps/plex
+```
+
+New checkouts can live under `$HOME/apps/plex/GigaAdmin`. The checkout name is
+independent of the Compose project name: `compose.yml` pins the legacy `plex`
+project so existing `plex_postgres_data` and `plex_app_storage` volumes remain
+attached after a move. Preserve any existing `COMPOSE_PROJECT_NAME` override.
+Database names and `PLEX_*` environment variables remain compatible.
+
+For an existing checkout, update its remote before the next deployment:
+
+```sh
+git remote set-url origin git@github.com:wjrus/GigaAdmin.git
 ```
 
 It runs:
@@ -26,10 +38,10 @@ http://<docker-host-ip>:3010
 On the server:
 
 ```sh
-mkdir -p /apps
-cd /apps
-git clone <your-repo-url> plex
-cd /apps/plex
+mkdir -p "$HOME/apps/plex"
+cd "$HOME/apps/plex"
+git clone git@github.com:wjrus/GigaAdmin.git
+cd GigaAdmin
 
 cp .env.production.example .env.production
 cp .env.postgres.example .env.postgres
@@ -164,7 +176,7 @@ production primary database. It does not copy secrets; those stay in
 On your development machine:
 
 ```sh
-cd /path/to/plex
+cd /path/to/plex/GigaAdmin
 mkdir -p tmp
 pg_dump --format=custom --no-owner --no-acl --file=tmp/plex_development.dump plex_development
 scp tmp/plex_development.dump <server>:/apps/plex/tmp/plex_development.dump

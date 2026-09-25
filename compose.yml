@@ -1,3 +1,7 @@
+# Preserve existing volumes and service identities when the checkout is renamed.
+# Deployments with a custom project name should keep COMPOSE_PROJECT_NAME set.
+name: plex
+
 services:
   db:
     image: postgres:18
@@ -21,7 +25,7 @@ services:
       context: .
       args:
         APP_REVISION: "${APP_REVISION:-unknown}"
-    image: plex-admin:production
+    image: gigaadmin:production
     restart: unless-stopped
     env_file:
       - .env.production
@@ -46,7 +50,7 @@ services:
       - app_storage:/rails/storage
 
   daily_refresh:
-    image: plex-admin:production
+    image: gigaadmin:production
     restart: unless-stopped
     env_file:
       - .env.production
@@ -63,7 +67,7 @@ services:
       - app_storage:/rails/storage
 
   now_playing_sampler:
-    image: plex-admin:production
+    image: gigaadmin:production
     restart: unless-stopped
     env_file:
       - .env.production

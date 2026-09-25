@@ -487,19 +487,11 @@ class UsersController < ApplicationController
   end
 
   def newest_stream_by_account_id(excluded_ids)
-    latest_by_account_id = PlexStreamEvent
+    PlexStreamEvent
       .where(machine_identifier: @machine_identifier)
       .where.not(account_id: excluded_ids.to_a)
-      .group(:account_id)
-      .maximum(:viewed_at)
-
-    latest_by_account_id.each_with_object({}) do |(account_id, viewed_at), streams|
-      stream = PlexStreamEvent
-        .where(machine_identifier: @machine_identifier, account_id: account_id, viewed_at: viewed_at)
-        .recent
-        .first
-      streams[account_id.to_s] = stream if stream
-    end
+      .latest_per_account
+      .index_by { |stream| stream.account_id.to_s }
   end
 
   def local_stream_account_title(account_id)

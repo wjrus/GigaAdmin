@@ -5,10 +5,7 @@ class PlexCoversController < ApplicationController
   class InvalidCover < StandardError; end
   Cover = Data.define(:body, :content_type)
   MAX_COVER_BYTES = 10.megabytes
-  ALLOWED_PATH_PREFIXES = [
-    "/library/metadata/",
-    "/photo/:/transcode"
-  ].freeze
+  METADATA_IMAGE_PATH = %r{\A/library/metadata/\d+/(?:thumb|art|banner)(?:/\d+)?\z}
 
   def show
     uri = cover_uri
@@ -24,9 +21,9 @@ class PlexCoversController < ApplicationController
   private
 
   def cover_uri
-    path = params.require(:path).to_s
-    raise URI::InvalidURIError, "invalid Plex cover path" unless path.start_with?("/")
-    raise URI::InvalidURIError, "unsupported Plex cover path" unless allowed_cover_path?(path)
+    path = URI(params.require(:path).to_s)
+    raise InvalidCover if path.absolute? || path.host || path.fragment
+    raise InvalidCover unless metadata_image_path?(path.path) || path.path == "/photo/:/transcode"
 
     base_url = ENV["PLEX_SERVER_BASE_URL"].to_s.delete_suffix("/")
     token = ENV["PLEX_TOKEN"].to_s
@@ -35,14 +32,32 @@ class PlexCoversController < ApplicationController
 
     uri = URI("#{base_url}#{path}")
     query = URI.decode_www_form(uri.query.to_s)
-    query.reject! { |key, _value| key == "X-Plex-Token" }
+    validate_transcode_source!(query, uri) if path.path == "/photo/:/transcode"
+    query.reject! { |key, _value| key.casecmp?("X-Plex-Token") }
     query << [ "X-Plex-Token", token ]
     uri.query = URI.encode_www_form(query)
     uri
   end
 
-  def allowed_cover_path?(path)
-    ALLOWED_PATH_PREFIXES.any? { |prefix| path.start_with?(prefix) }
+  def metadata_image_path?(path)
+    METADATA_IMAGE_PATH.match?(path)
+  end
+
+  def validate_transcode_source!(query, server_uri)
+    sources = query.select { |key, _value| key.casecmp?("url") }
+    raise InvalidCover unless sources.one?
+
+    source = URI(sources.first.last)
+    if source.absolute?
+      same_server = source.scheme == server_uri.scheme && source.host == server_uri.host && source.port == server_uri.port
+      raise InvalidCover unless same_server && source.userinfo.nil?
+    else
+      raise InvalidCover if source.host
+    end
+    raise InvalidCover if source.fragment || source.query || !metadata_image_path?(source.path)
+
+    # Plex's transcoder can itself fetch URLs. Restrict it to local metadata art.
+    sources.first.replace([ "url", source.path ])
   end
 
   def valid_cover_headers?(response)

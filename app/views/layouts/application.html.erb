@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <title><%= content_for(:title) || "Plex Shares" %></title>
+    <title><%= content_for(:title) || "GigaAdmin" %></title>
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="application-name" content="Plex">
+    <meta name="application-name" content="GigaAdmin">
     <meta name="mobile-web-app-capable" content="yes">
     <%= csrf_meta_tags %>
     <%= csp_meta_tag %>
@@ -28,7 +28,7 @@
       <div class="mx-auto flex w-full max-w-[100rem] flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
         <%= link_to root_path, class: "site-brand inline-flex items-center gap-2 text-sm font-semibold text-white" do %>
           <%= image_tag "/plex-logo-square.svg", alt: "", class: "site-brand__icon size-7", aria: { hidden: true } %>
-          <span>Plex Shares</span>
+          <span>GigaAdmin</span>
         <% end %>
         <label class="theme-picker" aria-label="Theme">
           <span class="theme-picker__label">Theme</span>

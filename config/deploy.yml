@@ -1,4 +1,4 @@
-# Name of your application. Used to uniquely configure containers.
+# GigaAdmin's legacy deployment identity; retain for existing Kamal installations.
 service: plex
 
 # Name of the container image (use your-user/app-name on external registries).

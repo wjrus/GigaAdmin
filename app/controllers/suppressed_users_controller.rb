@@ -10,17 +10,7 @@ class SuppressedUsersController < ApplicationController
   def latest_streams_by_user_id(user_ids)
     return {} if @machine_identifier.blank? || user_ids.empty?
 
-    latest_by_account_id = PlexStreamEvent
-      .where(machine_identifier: @machine_identifier, account_id: user_ids)
-      .group(:account_id)
-      .maximum(:viewed_at)
-
-    latest_by_account_id.each_with_object({}) do |(account_id, viewed_at), streams|
-      stream = PlexStreamEvent
-        .where(machine_identifier: @machine_identifier, account_id: account_id, viewed_at: viewed_at)
-        .recent
-        .first
-      streams[account_id.to_s] = stream if stream
-    end
+    PlexStreamEvent.latest_for_accounts(@machine_identifier, user_ids)
+      .index_by { |stream| stream.account_id.to_s }
   end
 end
