@@ -10,10 +10,10 @@ export default class extends Controller {
   }
 
   openWithKeyboard(event) {
-    if (!["Enter", " "].includes(event.key)) return
+    if (!["Enter", " "].includes(event.key) || event.defaultPrevented || this.interactiveElement(event.target)) return
 
     event.preventDefault()
-    this.open(event)
+    Turbo.visit(this.urlValue)
   }
 
   interactiveElement(target) {

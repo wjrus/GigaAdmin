@@ -6,7 +6,10 @@ export default class extends Controller {
   confirmSubmit(event) {
     const form = event.target
     if (form.dataset.confirmWhenEmpty === "true" && this.hasSelectedOptions(form)) return
-    if (form.dataset.confirmed === "true") return
+    if (form.dataset.confirmed === "true") {
+      delete form.dataset.confirmed
+      return
+    }
 
     event.preventDefault()
     this.pendingForm = form
@@ -24,9 +27,15 @@ export default class extends Controller {
   submit() {
     if (!this.pendingForm) return
 
-    this.pendingForm.dataset.confirmed = "true"
+    const form = this.pendingForm
+    this.pendingForm = null
+    form.dataset.confirmed = "true"
     this.dialogTarget.close()
-    this.pendingForm.requestSubmit()
+    try {
+      form.requestSubmit()
+    } finally {
+      delete form.dataset.confirmed
+    }
   }
 
   hasSelectedOptions(form) {
