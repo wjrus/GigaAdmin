@@ -21,7 +21,15 @@ class RefreshRun < ApplicationRecord
     scope = active.where(updated_at: ...STALE_AFTER.ago)
     scope = scope.where(machine_identifier: machine_identifier) if machine_identifier.present?
 
-    scope.find_each(&:mark_stale!)
+    # Keep eligibility in the UPDATE so a concurrent heartbeat or completion
+    # cannot be overwritten after a stale row was loaded into memory.
+    scope.update_all(
+      status: "stale",
+      finished_at: Time.current,
+      updated_at: Time.current,
+      error_message: "Refresh stopped reporting progress. It may have been interrupted by a deploy or worker restart.",
+      last_message: "Refresh marked stale after #{STALE_AFTER.inspect} without progress"
+    )
   end
 
   def active?
@@ -34,15 +42,6 @@ class RefreshRun < ApplicationRecord
 
   def stale_active?
     active? && updated_at < STALE_AFTER.ago
-  end
-
-  def mark_stale!
-    update!(
-      status: "stale",
-      finished_at: Time.current,
-      error_message: "Refresh stopped reporting progress. It may have been interrupted by a deploy or worker restart.",
-      last_message: "Refresh marked stale after #{STALE_AFTER.inspect} without progress"
-    )
   end
 
   def elapsed_seconds

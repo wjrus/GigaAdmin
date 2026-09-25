@@ -1,5 +1,6 @@
 class PlexStreamEvent < ApplicationRecord
-  COMPLETION_THRESHOLD = 0.9
+  COMPLETED_SQL = "duration > 0 AND view_offset::bigint * 10 >= duration::bigint * 9".freeze
+  PLAY_IDENTITY_SQL = "machine_identifier, account_id, COALESCE(NULLIF(rating_key, ''), NULLIF(full_title, ''), title), (viewed_at AT TIME ZONE 'UTC' AT TIME ZONE :zone)::date".freeze
   LIBRARY_IDENTIFIER_SQL = "COALESCE(NULLIF(library_title, ''), NULLIF(metadata->>'library_section_id', ''), 'unknown')".freeze
   AGGREGATE_TITLE_SQL = <<~SQL.squish.freeze
     CASE WHEN media_type = 'episode' THEN
@@ -11,9 +12,13 @@ class PlexStreamEvent < ApplicationRecord
 
   scope :recent, -> { order(viewed_at: :desc, id: :desc) }
   scope :for_machine, ->(machine_identifier) { where(machine_identifier: machine_identifier) }
-  scope :completed, -> { where("duration > 0 AND view_offset * 10 >= duration * 9") }
+  scope :completed, -> { where(COMPLETED_SQL) }
   scope :without_completion_data, -> { where("duration IS NULL OR duration <= 0 OR view_offset IS NULL") }
   scope :video, -> { where(media_type: %w[movie episode]) }
+  scope :latest_per_account, lambda {
+    select("DISTINCT ON (account_id) account_id, viewed_at, title, full_title, media_type")
+      .reorder(:account_id, viewed_at: :desc, id: :desc)
+  }
   scope :in_active_libraries, lambda { |library_titles:, library_ids:|
     if library_titles.blank? && library_ids.blank?
       none
@@ -23,10 +28,11 @@ class PlexStreamEvent < ApplicationRecord
   }
 
   def self.completed_play_scope(scope = all)
+    identity = sanitize_sql_array([ PLAY_IDENTITY_SQL, zone: Time.zone.tzinfo.name ])
     deduped_ids = scope
-      .where("(duration > 0 AND view_offset * 10 >= duration * 9) OR duration IS NULL OR duration <= 0 OR view_offset IS NULL")
-      .select("DISTINCT ON (machine_identifier, account_id, COALESCE(NULLIF(rating_key, ''), full_title, title), DATE(viewed_at)) plex_stream_events.id")
-      .order(Arel.sql("machine_identifier, account_id, COALESCE(NULLIF(rating_key, ''), full_title, title), DATE(viewed_at), viewed_at DESC, id DESC"))
+      .where("(#{COMPLETED_SQL}) OR duration IS NULL OR duration <= 0 OR view_offset IS NULL")
+      .reselect("DISTINCT ON (#{identity}) plex_stream_events.id")
+      .reorder(Arel.sql("#{identity}, viewed_at DESC, id DESC"))
 
     where(id: deduped_ids)
   end
@@ -39,9 +45,10 @@ class PlexStreamEvent < ApplicationRecord
   def self.activity_counts(scope, bucket:)
     raise ArgumentError, "Unsupported activity bucket" unless %w[day month].include?(bucket)
 
-    zone = connection.quote(Time.zone.tzinfo.name)
-    expression = Arel.sql("date_trunc('#{bucket}', viewed_at AT TIME ZONE 'UTC' AT TIME ZONE #{zone})::date")
-    scope.group(expression).count
+    expression = Arel.sql(sanitize_sql_array([
+      "date_trunc(:bucket, viewed_at AT TIME ZONE 'UTC' AT TIME ZONE :zone)::date", bucket: bucket, zone: Time.zone.tzinfo.name
+    ]))
+    scope.reorder(nil).group(expression).count
   end
 
   def library_identifier
@@ -55,9 +62,7 @@ class PlexStreamEvent < ApplicationRecord
   end
 
   def self.latest_for_accounts(machine_identifier, account_ids)
-    for_machine(machine_identifier).where(account_id: account_ids)
-      .select("DISTINCT ON (account_id) account_id, viewed_at, title, full_title, media_type")
-      .order(:account_id, viewed_at: :desc, id: :desc)
+    for_machine(machine_identifier).where(account_id: account_ids).latest_per_account
   end
 
   def self.upsert_streams!(machine_identifier, streams)
@@ -134,13 +139,18 @@ class PlexStreamEvent < ApplicationRecord
 
   def self.history_summary(machine_identifier)
     scope = for_machine(machine_identifier)
+    total, oldest, newest, with_player, with_ip = scope.pick(
+      Arel.sql("COUNT(*)"), Arel.sql("MIN(viewed_at)"), Arel.sql("MAX(viewed_at)"),
+      Arel.sql("COUNT(*) FILTER (WHERE NULLIF(player_title, '') IS NOT NULL OR NULLIF(player_platform, '') IS NOT NULL)"),
+      Arel.sql("COUNT(*) FILTER (WHERE NULLIF(ip_address, '') IS NOT NULL)")
+    )
     {
-      total: scope.count,
-      oldest: scope.minimum(:viewed_at),
-      newest: scope.maximum(:viewed_at),
+      total: total,
+      oldest: oldest,
+      newest: newest,
       completed_plays: completed_play_scope(scope).count,
-      with_player: scope.where.not(player_title: [ nil, "" ]).or(scope.where.not(player_platform: [ nil, "" ])).count,
-      with_ip: scope.where.not(ip_address: [ nil, "" ]).count
+      with_player: with_player,
+      with_ip: with_ip
     }
   end
 
@@ -149,11 +159,11 @@ class PlexStreamEvent < ApplicationRecord
   end
 
   def self.stream_identifier(stream)
-    stream[:rating_key].presence ||
+    (stream[:rating_key].presence ||
       stream[:key].presence ||
       stream[:guid].presence ||
       stream_title(stream).presence ||
-      "unknown"
+      "unknown").to_s
   end
 
   def self.stream_cover_path(stream)
@@ -167,7 +177,7 @@ class PlexStreamEvent < ApplicationRecord
     player = stream[:player].is_a?(Hash) ? stream[:player] : {}
     player[:title].presence ||
       stream[:player_title].presence ||
-      stream[:player].presence ||
+      (stream[:player].presence unless stream[:player].is_a?(Hash)) ||
       stream[:device].presence
   end
 

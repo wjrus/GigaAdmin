@@ -79,6 +79,38 @@ class PlexStreamEventTest < ActiveSupport::TestCase
     assert_equal "Feature Updated", PlexStreamEvent.find_by!(machine_identifier: "machine-one", account_id: "42").title
   end
 
+  test "normalizes numeric rating keys before deduplicating existing streams" do
+    stream = { account_id: "42", rating_key: "123", viewed_at: Time.current.to_i, title: "Feature" }
+    PlexStreamEvent.upsert_streams!("machine-one", [ stream ])
+
+    assert_no_difference -> { PlexStreamEvent.count } do
+      assert_equal 0, PlexStreamEvent.upsert_streams!("machine-one", [
+        stream.merge(rating_key: 123), stream.merge(title: "Updated feature")
+      ])
+    end
+    assert_equal "Updated feature", PlexStreamEvent.find_by!(rating_key: "123").title
+  end
+
+  test "player metadata without a title uses a flat fallback rather than a serialized hash" do
+    stream = { account_id: "42", viewed_at: Time.current.to_i, player: { platform: "tvOS" }, device: "Living Room" }
+    PlexStreamEvent.upsert_streams!("machine-one", [ stream ])
+
+    assert_equal "Living Room", PlexStreamEvent.find_by!(account_id: "42").player_title
+  end
+
+  test "latest per account replaces existing ordering and breaks timestamp ties consistently" do
+    attrs = { machine_identifier: "latest-test", account_id: "42", viewed_at: Time.current }
+    older = PlexStreamEvent.create!(attrs.merge(rating_key: "old", title: "Old", viewed_at: 1.day.ago))
+    PlexStreamEvent.create!(attrs.merge(rating_key: "first", title: "First"))
+    newest = PlexStreamEvent.create!(attrs.merge(rating_key: "last", title: "Last"))
+    other = PlexStreamEvent.create!(attrs.merge(account_id: "43", title: "Other"))
+    PlexStreamEvent.create!(attrs.merge(machine_identifier: "other-machine", title: "Elsewhere", viewed_at: 1.day.from_now))
+
+    latest = PlexStreamEvent.for_machine("latest-test").recent.latest_per_account
+    assert_equal [ [ "42", newest.title ], [ "43", other.title ] ], latest.map { |event| [ event.account_id, event.title ] }
+    assert_equal [ newest.title ], PlexStreamEvent.latest_for_accounts("latest-test", [ older.account_id ]).map(&:title)
+  end
+
   test "completed play scope counts one completion per user title and day" do
     attrs = {
       machine_identifier: "machine-one",
@@ -112,6 +144,54 @@ class PlexStreamEventTest < ActiveSupport::TestCase
 
     scope = PlexStreamEvent.where(machine_identifier: "machine-one")
     assert_equal 2, PlexStreamEvent.completed_play_scope(scope).count
+  end
+
+  test "completion deduplication uses the same local date as activity buckets" do
+    Time.use_zone("America/New_York") do
+      attrs = { machine_identifier: "local-days", account_id: "42", rating_key: "feature", duration: 1000, view_offset: 950 }
+      PlexStreamEvent.create!(attrs.merge(viewed_at: Time.utc(2026, 1, 1, 23)))
+      latest = PlexStreamEvent.create!(attrs.merge(viewed_at: Time.utc(2026, 1, 2, 1)))
+      next_day = PlexStreamEvent.create!(attrs.merge(viewed_at: Time.utc(2026, 1, 2, 6)))
+      scope = PlexStreamEvent.completed_play_scope(PlexStreamEvent.for_machine("local-days").recent)
+
+      assert_equal [ latest.id, next_day.id ].sort, scope.pluck(:id).sort
+      assert_equal({ Date.new(2026, 1, 1) => 1, Date.new(2026, 1, 2) => 1 }, PlexStreamEvent.activity_counts(scope.recent, bucket: "day"))
+    end
+  end
+
+  test "completion deduplication distinguishes titles when identifiers and full titles are blank" do
+    attrs = { machine_identifier: "blank-identifiers", account_id: "42", rating_key: "", full_title: "", viewed_at: Time.current }
+    first = PlexStreamEvent.create!(attrs.merge(title: "First"))
+    second = PlexStreamEvent.create!(attrs.merge(title: "Second", viewed_at: 1.minute.ago))
+
+    assert_equal [ first.id, second.id ].sort, PlexStreamEvent.completed_play_scope(PlexStreamEvent.for_machine("blank-identifiers")).pluck(:id).sort
+  end
+
+  test "completion calculations do not overflow for long recordings" do
+    attrs = { machine_identifier: "long-recording", account_id: "42", viewed_at: Time.current, duration: 300_000_000 }
+    completed = PlexStreamEvent.create!(attrs.merge(rating_key: "completed", view_offset: 270_000_000))
+    PlexStreamEvent.create!(attrs.merge(rating_key: "incomplete", view_offset: 269_999_999))
+    scope = PlexStreamEvent.for_machine("long-recording")
+
+    assert_equal [ completed.id ], scope.completed.pluck(:id)
+    assert_equal [ completed.id ], PlexStreamEvent.completed_play_scope(scope).pluck(:id)
+  end
+
+  test "history summary computes metadata counts in one scan plus the completion query" do
+    attrs = { machine_identifier: "summary-test", account_id: "42", duration: 1000 }
+    oldest = PlexStreamEvent.create!(attrs.merge(rating_key: "one", viewed_at: 2.days.ago, view_offset: 950, player_title: "Player", ip_address: "192.0.2.1"))
+    PlexStreamEvent.create!(attrs.merge(rating_key: "two", viewed_at: 1.day.ago, view_offset: 100, player_platform: "tvOS", ip_address: ""))
+    newest = PlexStreamEvent.create!(attrs.merge(rating_key: "three", viewed_at: Time.current, view_offset: 100, player_title: "", player_platform: ""))
+    PlexStreamEvent.create!(attrs.merge(machine_identifier: "other-machine", viewed_at: Time.current))
+    queries = []
+    subscriber = ->(_name, _start, _finish, _id, payload) { queries << payload[:sql] if payload[:sql].match?(/\ASELECT .*plex_stream_events/i) }
+    summary = ActiveSupport::Notifications.subscribed(subscriber, "sql.active_record") do
+      PlexStreamEvent.history_summary("summary-test")
+    end
+
+    assert_equal({ total: 3, oldest: oldest.reload.viewed_at, newest: newest.reload.viewed_at, completed_plays: 1, with_player: 2, with_ip: 1 }, summary)
+    assert_equal 2, queries.size
+    assert_equal({ total: 0, oldest: nil, newest: nil, completed_plays: 0, with_player: 0, with_ip: 0 }, PlexStreamEvent.history_summary("no-history"))
   end
 
   test "completed video play scope ignores audio and inactive libraries" do
