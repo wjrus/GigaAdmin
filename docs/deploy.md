@@ -121,10 +121,25 @@ docker compose up -d now_playing_sampler
 The previous image can be tagged before upgrading, for example
 `docker tag plex-admin:production gigaadmin:pre-upgrade` for the first GigaAdmin
 release. Keep that tag and the previous Git revision until health and application
-checks pass. This release has no database migrations. To roll back its code,
-restore the previous revision in a clean checkout and run the deployment steps
-with that image without pulling the newer revision again. Never remove volumes
-as part of a code rollback.
+checks pass. This release has no database migrations. To restore the previous
+image without rebuilding it or changing the databases, create an override:
+
+```sh
+cat > tmp/rollback.yml <<'YAML'
+services:
+  web:
+    image: gigaadmin:pre-upgrade
+  daily_refresh:
+    image: gigaadmin:pre-upgrade
+YAML
+docker compose -f compose.yml -f tmp/rollback.yml up -d --no-deps web daily_refresh
+curl --connect-timeout 2 --max-time 3 -fsS -H 'Host: plexadmin.example.com' http://127.0.0.1:3010/up
+```
+
+Use your configured hostname for the health check. If the sampler is enabled,
+include `now_playing_sampler` in both the override and the service list. A normal
+deployment uses the primary Compose file and replaces the rollback image. Never
+remove volumes as part of a code rollback.
 
 ## Dependency Updates
 
