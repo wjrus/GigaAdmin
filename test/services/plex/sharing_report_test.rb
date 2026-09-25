@@ -155,7 +155,46 @@ module Plex
       end
     end
 
+    test "does not match unrelated invites through missing ids or conflicting server identities" do
+      server = { id: "local-id", name: "Local Plex" }
+      candidates = [
+        { name: "Other Plex" },
+        {},
+        { machine_identifier: "other-machine", name: "Local Plex" },
+        { client_identifier: "other-machine", id: "local-id" },
+        { id: "other-id", name: "Local Plex" }
+      ]
+
+      candidates.each do |candidate|
+        assert_empty report_with_invite(server: server, candidate: candidate).users, candidate.inspect
+      end
+      assert_empty report_with_invite(server: { name: "Local Plex" }, candidate: { name: "Other Plex" }).users
+      assert_empty report_with_invite(server: {}, candidate: {}).users
+    end
+
+    test "matches invites using the strongest available server identity" do
+      server = { id: "local-id", name: "Local Plex" }
+      candidates = [
+        { machine_identifier: "machine-one", name: "Old Plex Name" },
+        { client_identifier: "machine-one" },
+        { id: "local-id", name: "Old Plex Name" },
+        { name: "Local Plex" }
+      ]
+
+      candidates.each do |candidate|
+        assert_equal [ "invite-one" ], report_with_invite(server: server, candidate: candidate).users.map(&:id), candidate.inspect
+      end
+    end
+
     private
+
+    def report_with_invite(server:, candidate:)
+      client = FakeClient.new(server_payload: { server: server, sections: [] }, shared_payload: [])
+      client.define_singleton_method(:requested_invites) do
+        [ { id: "invite-one", server: "1", servers: [ candidate ] } ]
+      end
+      SharingReport.new(client: client, machine_identifier: "machine-one", include_history: false).call
+    end
 
     def with_history_env
       old_page_size = ENV["PLEX_HISTORY_PAGE_SIZE"]

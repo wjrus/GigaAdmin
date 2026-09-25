@@ -161,23 +161,28 @@ module Plex
       existing_user_ids = shared_servers.filter_map do |shared_server|
         (shared_server[:user_id].presence || shared_server.dig(:user, :id)).to_s.presence
       end.to_set
-      server_name = server[:name].to_s
-      server_id = server[:id].to_s
-
       client.requested_invites.filter_map do |invite|
         invite_id = invite[:id].to_s
         next if existing_user_ids.include?(invite_id)
 
         invite_server = Array(invite[:servers]).find do |candidate|
-          candidate[:machine_identifier].to_s == machine_identifier ||
-            candidate[:client_identifier].to_s == machine_identifier ||
-            candidate[:id].to_s == server_id ||
-            candidate[:name].to_s == server_name
+          invite_server_matches?(candidate, server)
         end
         next unless truthy?(invite[:server]) && invite_server
 
         build_pending_invite(invite, invite_server, library_lookup)
       end
+    end
+
+    def invite_server_matches?(candidate, server)
+      machine_ids = [ candidate[:machine_identifier], candidate[:client_identifier] ].compact_blank.map(&:to_s)
+      return machine_ids.include?(machine_identifier) if machine_ids.any?
+
+      if candidate[:id].present? && server[:id].present?
+        return candidate[:id].to_s == server[:id].to_s
+      end
+
+      candidate[:name].present? && server[:name].present? && candidate[:name].to_s == server[:name].to_s
     end
 
     def build_pending_invite(invite, invite_server, library_lookup)
