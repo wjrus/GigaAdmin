@@ -108,6 +108,15 @@ jobs:
         with:
           bundler-cache: true
 
+      - name: Verify production eager loading without test dependencies or a database
+        env:
+          RAILS_ENV: production
+          SECRET_KEY_BASE_DUMMY: "1"
+          BUNDLE_WITHOUT: development:test
+          POSTGRES_HOST: 127.0.0.1
+          POSTGRES_PORT: "1"
+        run: bin/rails zeitwerk:check
+
       - name: Run tests
         env:
           RAILS_ENV: test

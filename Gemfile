@@ -35,6 +35,8 @@ gem "solid_cable"
 # Reduces boot times through caching; required in config/boot.rb
 gem "bootsnap", require: false
 gem "csv"
+# Parse Plex's XML responses in production as well as tests.
+gem "rexml", "~> 3.4", require: false
 
 # Deploy this application anywhere as a Docker container [https://kamal-deploy.org]
 gem "kamal", require: false
