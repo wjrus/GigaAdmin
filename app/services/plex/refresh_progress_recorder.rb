@@ -35,7 +35,6 @@ module Plex
     def record_page_progress(event)
       stop_reason = event[:stop_reason].presence || "none"
       refresh_run.with_lock do
-        refresh_run.reload
         refresh_run.update!(
           history_pages_retrieved: event.fetch(:page),
           history_rows_retrieved: refresh_run.history_rows_retrieved + event.fetch(:rows),
