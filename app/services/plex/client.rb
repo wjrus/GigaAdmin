@@ -19,12 +19,12 @@ module Plex
         token: token,
         base_url: ENV.fetch("PLEX_API_BASE_URL", DEFAULT_BASE_URL),
         server_base_url: ENV["PLEX_SERVER_BASE_URL"].presence,
-        client_identifier: ENV.fetch("PLEX_CLIENT_IDENTIFIER", "plex-shares-local"),
-        client_name: ENV.fetch("PLEX_CLIENT_NAME", "Plex Shares")
+        client_identifier: ENV.fetch("PLEX_CLIENT_IDENTIFIER", "gigaadmin-local"),
+        client_name: ENV.fetch("PLEX_CLIENT_NAME", "GigaAdmin")
       )
     end
 
-    def initialize(token:, base_url: DEFAULT_BASE_URL, server_base_url: nil, client_identifier: nil, client_name: "Plex Shares")
+    def initialize(token:, base_url: DEFAULT_BASE_URL, server_base_url: nil, client_identifier: nil, client_name: "GigaAdmin")
       @token = token
       @base_url = base_url.delete_suffix("/")
       @server_base_url = server_base_url&.delete_suffix("/")
@@ -143,13 +143,13 @@ module Plex
       uri = URI("#{base}#{path}")
       query_params = URI.decode_www_form(uri.query.to_s)
       query_params.concat(params.map { |key, value| [ key.to_s, value ] })
-      query_params << [ "X-Plex-Token", token ]
-      query_params << [ "X-Plex-Client-Identifier", client_identifier ]
-      query_params << [ "X-Plex-Product", client_name ]
-      uri.query = URI.encode_www_form(query_params)
+      uri.query = URI.encode_www_form(query_params) if query_params.any?
 
       request = request_class(method).new(uri)
       request["Accept"] = "application/xml, application/json"
+      request["X-Plex-Token"] = token
+      request["X-Plex-Client-Identifier"] = client_identifier
+      request["X-Plex-Product"] = client_name
       headers.each { |key, value| request[key] = value }
       request.body = body if body.present?
 
@@ -190,17 +190,17 @@ module Plex
       else
         xml_media_container(REXML::Document.new(body))
       end
-    rescue JSON::ParserError, REXML::ParseException => error
-      raise Error, "Plex API returned an unreadable response: #{error.message}"
+    rescue JSON::ParserError, REXML::ParseException
+      raise Error, "Plex API returned an unreadable response", cause: nil
     end
 
     def json_media_container(payload)
       container = payload.fetch("MediaContainer", payload)
       {
-        users: Array(container["User"]).map { |user| normalize_user_hash(user) },
-        servers: Array(container["Server"]).map { |server| normalize_hash(server) },
-        invites: Array(container["Invite"]).map { |invite| normalize_invite_hash(invite) },
-        metadata: Array(container["Metadata"]).map { |metadata| normalize_metadata_hash(metadata) }
+        users: Array.wrap(container["User"]).map { |user| normalize_user_hash(user) },
+        servers: Array.wrap(container["Server"]).map { |server| normalize_hash(server) },
+        invites: Array.wrap(container["Invite"]).map { |invite| normalize_invite_hash(invite) },
+        metadata: Array.wrap(container["Metadata"]).map { |metadata| normalize_metadata_hash(metadata) }
       }
     end
 
@@ -220,8 +220,8 @@ module Plex
         server: server ? attributes(server) : {},
         sections: elements(document, "//Section").map { |section| attributes(section) }
       }
-    rescue REXML::ParseException => error
-      raise Error, "Plex server response was unreadable: #{error.message}"
+    rescue REXML::ParseException
+      raise Error, "Plex server response was unreadable", cause: nil
     end
 
     def shared_server_document(body)
@@ -232,8 +232,8 @@ module Plex
           sections: elements(shared_server, "Section").map { |section| attributes(section) }
         )
       end
-    rescue REXML::ParseException => error
-      raise Error, "Plex shared server response was unreadable: #{error.message}"
+    rescue REXML::ParseException
+      raise Error, "Plex shared server response was unreadable", cause: nil
     end
 
     def session_document(body)
@@ -242,13 +242,13 @@ module Plex
       else
         xml_session_document(REXML::Document.new(body))
       end
-    rescue JSON::ParserError, REXML::ParseException => error
-      raise Error, "Plex sessions response was unreadable: #{error.message}"
+    rescue JSON::ParserError, REXML::ParseException
+      raise Error, "Plex sessions response was unreadable", cause: nil
     end
 
     def json_session_document(payload)
       container = payload.fetch("MediaContainer", payload)
-      Array(container["Metadata"]).map do |metadata|
+      Array.wrap(container["Metadata"]).map do |metadata|
         normalize_hash(metadata).merge(
           user: normalize_hash(metadata["User"] || {}),
           player: normalize_hash(metadata["Player"] || {}),
@@ -289,7 +289,7 @@ module Plex
 
     def normalize_user_hash(hash)
       normalized = normalize_hash(hash)
-      normalized[:servers] = Array(hash["Server"]).map { |server| normalize_hash(server) }
+      normalized[:servers] = Array.wrap(hash["Server"]).map { |server| normalize_hash(server) }
       normalized
     end
 
@@ -302,7 +302,7 @@ module Plex
         key = child.name.to_s.underscore.to_sym
         value = metadata_attributes(child)
         if nested.key?(key)
-          nested[key] = Array(nested[key]) << value
+          nested[key] = Array.wrap(nested[key]) << value
         else
           nested[key] = value
         end
@@ -330,7 +330,7 @@ module Plex
 
     def normalize_invite_hash(hash)
       normalized = normalize_hash(hash)
-      normalized[:servers] = Array(hash["Server"]).map { |server| normalize_hash(server) }
+      normalized[:servers] = Array.wrap(hash["Server"]).map { |server| normalize_hash(server) }
       normalized
     end
 
