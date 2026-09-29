@@ -10,9 +10,32 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_08_020000) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_29_000200) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
+
+  create_table "admin_invitations", force: :cascade do |t|
+    t.datetime "accepted_at"
+    t.datetime "created_at", null: false
+    t.string "email", null: false
+    t.datetime "expires_at", null: false
+    t.bigint "invited_by_id"
+    t.datetime "revoked_at"
+    t.string "token_digest", null: false
+    t.datetime "updated_at", null: false
+    t.index ["invited_by_id"], name: "index_admin_invitations_on_invited_by_id"
+    t.index ["token_digest"], name: "index_admin_invitations_on_token_digest", unique: true
+  end
+
+  create_table "admin_users", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.string "email", null: false
+    t.string "password_digest", null: false
+    t.integer "session_version", default: 0, null: false
+    t.boolean "super_admin", default: false, null: false
+    t.datetime "updated_at", null: false
+    t.index ["email"], name: "index_admin_users_on_email", unique: true
+  end
 
   create_table "plex_now_playing_samples", force: :cascade do |t|
     t.string "account_id"
@@ -128,4 +151,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_08_020000) do
     t.jsonb "users", default: [], null: false
     t.index ["machine_identifier", "fetched_at"], name: "index_share_snapshots_on_machine_identifier_and_fetched_at"
   end
+
+  add_foreign_key "admin_invitations", "admin_users", column: "invited_by_id", on_delete: :nullify
 end

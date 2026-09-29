@@ -1,0 +1,7 @@
+<% content_for :title, "Invitation unavailable" %>
+
+<section class="mx-auto max-w-xl space-y-4 rounded-lg border border-zinc-800 bg-zinc-900 p-6">
+  <h1 class="text-2xl font-semibold text-white">This invitation is unavailable</h1>
+  <p class="text-zinc-300">The link may have expired, been revoked or already been accepted. Ask an administrator for a new invitation.</p>
+  <%= link_to "Sign in", sign_in_path, class: "inline-flex text-cyan-300 underline" %>
+</section>

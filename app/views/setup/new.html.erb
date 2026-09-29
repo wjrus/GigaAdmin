@@ -1,0 +1,26 @@
+<% content_for :title, "Set up GigaAdmin" %>
+<div class="mx-auto max-w-xl px-4 py-10">
+  <section class="rounded-lg border border-zinc-800 bg-zinc-900 p-6">
+    <h1 class="text-2xl font-semibold">Create your administrator account</h1>
+    <p class="mt-2 text-sm leading-6 text-zinc-400">This first account will be the super admin for GigaAdmin and your Plex sharing. After setup, only super admins can invite additional administrators.</p>
+    <%= render "shared/admin_authority_warning" %>
+    <% if @admin_user.errors.any? %>
+      <div role="alert" class="my-4 rounded border border-red-500 p-4 text-sm"><%= @admin_user.errors.full_messages.to_sentence %></div>
+    <% end %>
+    <%= form_with model: @admin_user, url: setup_path, class: "space-y-4" do |form| %>
+      <div>
+        <%= form.label :email, "Email", class: "block text-sm font-medium" %>
+        <%= form.email_field :email, required: true, autocomplete: "username", autofocus: true, class: "mt-1 w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-white" %>
+      </div>
+      <div>
+        <%= form.label :password, "Password (at least 12 characters)", class: "block text-sm font-medium" %>
+        <%= form.password_field :password, required: true, minlength: 12, maxlength: 72, autocomplete: "new-password", class: "mt-1 w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-white" %>
+      </div>
+      <div>
+        <%= form.label :password_confirmation, "Confirm password", class: "block text-sm font-medium" %>
+        <%= form.password_field :password_confirmation, required: true, autocomplete: "new-password", class: "mt-1 w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-white" %>
+      </div>
+      <%= form.submit "Create administrator", class: "w-full cursor-pointer rounded bg-cyan-300 px-4 py-3 font-semibold text-zinc-950 hover:bg-cyan-200" %>
+    <% end %>
+  </section>
+</div>

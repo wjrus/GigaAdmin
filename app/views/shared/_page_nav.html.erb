@@ -8,5 +8,6 @@
   <%= link_to "Stats", stats_path, class: nav_link_class %>
   <%= link_to "Status", status_path, class: nav_link_class %>
   <%= link_to "Maintenance", maintenance_path, class: nav_link_class %>
+  <%= link_to(current_super_admin? ? "Admins" : "Account", admin_users_path, class: nav_link_class) if local_authentication? %>
   <%= button_to "Sign out", sign_out_path, method: :delete, class: nav_link_class %>
 </nav>

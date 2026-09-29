@@ -1,0 +1,26 @@
+<% content_for :title, "Accept administrator invitation" %>
+<% content_for :head do %>
+  <meta name="turbo-cache-control" content="no-cache">
+<% end %>
+
+<section class="mx-auto max-w-2xl space-y-6 rounded-lg border border-zinc-800 bg-zinc-900 p-6">
+  <h1 class="text-2xl font-semibold text-white">Become a GigaAdmin administrator</h1>
+  <%= render "warning" %>
+  <p class="text-zinc-300">This invitation is for <strong class="text-white"><%= @invitation.email %></strong>. Choose a password to accept it.</p>
+  <% if @admin_user.errors.any? %>
+    <div role="alert" class="rounded-lg border border-red-500/40 bg-red-950/40 p-4 text-red-100">
+      <%= @admin_user.errors.full_messages.to_sentence %>
+    </div>
+  <% end %>
+  <%= form_with scope: :admin_user, url: accept_admin_invitation_path(token: @token), method: :post, data: { turbo: false }, class: "space-y-4" do |form| %>
+    <div>
+      <%= form.label :password, "Password (at least 12 characters)", class: "block text-sm font-medium text-zinc-300" %>
+      <%= form.password_field :password, required: true, minlength: 12, autocomplete: "new-password", class: "mt-2 block w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-white" %>
+    </div>
+    <div>
+      <%= form.label :password_confirmation, "Confirm password", class: "block text-sm font-medium text-zinc-300" %>
+      <%= form.password_field :password_confirmation, required: true, minlength: 12, autocomplete: "new-password", class: "mt-2 block w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-white" %>
+    </div>
+    <%= form.submit "Accept administrator invitation", class: "rounded-md bg-cyan-300 px-4 py-2.5 font-semibold text-zinc-950" %>
+  <% end %>
+</section>

@@ -1,4 +1,7 @@
 ENV["RAILS_ENV"] ||= "test"
+# Existing controller fixtures exercise Google authentication. Local-auth tests
+# explicitly select their mode; never inherit a developer's login configuration.
+ENV["GIGAADMIN_AUTH_MODE"] = "google"
 require_relative "../config/environment"
 require "rails/test_help"
 

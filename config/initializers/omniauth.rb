@@ -1,5 +1,10 @@
+require Rails.root.join("lib/admin_authentication")
+
+# Reject a misspelled mode rather than silently enabling first-run setup.
+AdminAuthentication.mode
+
 Rails.application.config.middleware.use OmniAuth::Builder do
-  if ENV["GOOGLE_CLIENT_ID"].present? && ENV["GOOGLE_CLIENT_SECRET"].present?
+  if !AdminAuthentication.local? && AdminAuthentication.google_configured?
     provider :google_oauth2,
              ENV.fetch("GOOGLE_CLIENT_ID"),
              ENV.fetch("GOOGLE_CLIENT_SECRET"),

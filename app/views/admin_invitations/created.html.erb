@@ -1,0 +1,16 @@
+<% content_for :title, "Administrator invitation" %>
+<% content_for :head do %>
+  <meta name="turbo-cache-control" content="no-cache">
+<% end %>
+
+<section class="mx-auto max-w-2xl space-y-6 rounded-lg border border-zinc-800 bg-zinc-900 p-6">
+  <h1 class="text-2xl font-semibold text-white">Administrator invitation ready</h1>
+  <%= render "warning" %>
+  <p class="text-zinc-300">Send this link privately to <strong class="text-white"><%= @invitation.email %></strong>. It expires in 48 hours and can be used once. The recipient will create their own password.</p>
+  <div>
+    <label for="invitation-link" class="block text-sm font-medium text-zinc-300">Invitation link</label>
+    <input id="invitation-link" type="text" readonly value="<%= @invitation_url %>" class="mt-2 block w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white" autocomplete="off">
+  </div>
+  <p class="text-sm text-zinc-400">Copy the link now. GigaAdmin cannot display it again. You can revoke it from Administrators if needed.</p>
+  <%= link_to "Back to Administrators", admin_users_path, class: "inline-flex text-cyan-300 underline" %>
+</section>

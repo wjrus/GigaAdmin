@@ -1,11 +1,18 @@
 class SessionsController < ApplicationController
   skip_before_action :require_admin!
+  rate_limit to: 10, within: 3.minutes, only: :authenticate
 
   def new
-    redirect_to root_path if admin_signed_in?
+    if admin_signed_in?
+      redirect_to root_path
+    elsif local_authentication? && !AdminUser.exists?
+      redirect_to setup_path
+    end
   end
 
   def create
+    return head :not_found if local_authentication?
+
     auth = request.env["omniauth.auth"]
     email = auth&.dig("info", "email").to_s.downcase
 
@@ -20,6 +27,23 @@ class SessionsController < ApplicationController
     session[:admin_name] = auth.dig("info", "name").presence || email
 
     redirect_to root_path, notice: "Signed in."
+  end
+
+  def authenticate
+    return head :not_found unless local_authentication?
+
+    credentials = params.expect(session: [ :email, :password ])
+    password = credentials[:password].to_s
+    admin = AdminUser.authenticate_by(email: credentials[:email].to_s.strip.downcase, password: password) if password.bytesize <= 72
+
+    if admin
+      start_local_session(admin)
+      redirect_to root_path, notice: "Signed in."
+    else
+      reset_session
+      flash.now[:alert] = "Email or password is incorrect."
+      render :new, status: :unprocessable_entity
+    end
   end
 
   def destroy

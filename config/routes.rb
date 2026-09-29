@@ -5,7 +5,17 @@ Rails.application.routes.draw do
   match "/auth/google_oauth2/callback", to: "sessions#create", via: [ :get, :post ]
   match "/auth/failure", to: "sessions#failure", via: [ :get, :post ]
   get "/sign_in", to: "sessions#new", as: :sign_in
+  post "/sign_in", to: "sessions#authenticate", as: :local_sign_in
   delete "/sign_out", to: "sessions#destroy", as: :sign_out
+  get "/setup", to: "setup#new", as: :setup
+  post "/setup", to: "setup#create"
+  get "/admin/users", to: "admin_users#index", as: :admin_users
+  patch "/admin/password", to: "admin_users#update_password", as: :admin_password
+  delete "/admin/users/:id", to: "admin_users#destroy", as: :admin_user
+  post "/admin/invitations", to: "admin_invitations#create", as: :admin_invitations
+  delete "/admin/invitations/:id", to: "admin_invitations#destroy", as: :admin_invitation
+  get "/admin/accept_invitation", to: "admin_invitations#show", as: :accept_admin_invitation
+  post "/admin/accept_invitation", to: "admin_invitations#accept"
 
   # Render dynamic PWA files from app/views/pwa/* (remember to link manifest in application.html.erb)
   # get "manifest" => "rails/pwa#manifest", as: :pwa_manifest

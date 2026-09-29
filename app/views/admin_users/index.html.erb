@@ -1,0 +1,79 @@
+<% content_for :title, "Administrators" %>
+<div class="mx-auto max-w-5xl space-y-6 px-4 py-8">
+  <h1 class="text-2xl font-semibold"><%= current_super_admin? ? "Administrators" : "Your account" %></h1>
+  <%= render "shared/page_nav" %>
+  <%= render "shared/admin_authority_warning" %>
+
+  <% if current_super_admin? %>
+  <section class="rounded-lg border border-zinc-800 bg-zinc-900 p-6" aria-labelledby="invite-heading">
+    <h2 id="invite-heading" class="text-xl font-semibold">Invite an administrator</h2>
+    <p class="mt-2 text-sm leading-6 text-zinc-400">Create a private, single-use link for this email address. It expires in 48 hours. Share it directly with the person you trust; GigaAdmin does not send an email.</p>
+    <%= form_with url: admin_invitations_path, class: "mt-4 space-y-4" do |form| %>
+      <div>
+        <%= label_tag "admin_invitation_email", "Administrator's email", class: "block text-sm font-medium" %>
+        <%= email_field_tag "admin_invitation[email]", nil, required: true, id: "admin_invitation_email", autocomplete: "off", class: "mt-1 w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-white" %>
+      </div>
+      <div>
+        <%= form.label :current_password, "Confirm your own password", class: "block text-sm font-medium" %>
+        <%= form.password_field :current_password, required: true, autocomplete: "current-password", class: "mt-1 w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-white" %>
+      </div>
+      <%= form.submit "Create Plex sharing admin invitation", class: "cursor-pointer rounded bg-amber-300 px-4 py-2 font-semibold text-zinc-950 hover:bg-amber-200" %>
+    <% end %>
+  </section>
+  <% end %>
+
+  <section aria-labelledby="accounts-heading" class="rounded-lg border border-zinc-800 bg-zinc-900 p-6">
+    <h2 id="accounts-heading" class="text-xl font-semibold">Current administrators</h2>
+    <ul class="mt-4 divide-y divide-zinc-800">
+      <% @admin_users.each do |admin| %>
+        <li class="py-4">
+          <p class="font-medium"><%= admin.email %><%= " (you)" if admin == current_local_admin %> · <%= admin.super_admin? ? "Super admin" : "Sharing admin" %></p>
+          <% if current_super_admin? && !admin.super_admin? && @admin_users.size > 1 %>
+            <%= form_with url: admin_user_path(admin), method: :delete, class: "mt-3 flex flex-wrap items-end gap-3", data: { turbo_confirm: "Remove this administrator? Their active sessions will lose access." } do |form| %>
+              <div>
+                <%= label_tag "remove_password_#{admin.id}", "Your password to confirm removal", class: "block text-sm text-zinc-400" %>
+                <%= password_field_tag :current_password, nil, id: "remove_password_#{admin.id}", required: true, autocomplete: "current-password", class: "mt-1 rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-white" %>
+              </div>
+              <%= form.submit "Remove administrator", class: "cursor-pointer rounded border border-red-500 px-3 py-2 text-sm text-red-300" %>
+            <% end %>
+          <% elsif admin.super_admin? %>
+            <p class="mt-2 text-sm text-zinc-400">Super admin accounts are protected from removal.</p>
+          <% end %>
+        </li>
+      <% end %>
+    </ul>
+  </section>
+
+  <% if @admin_invitations.any? %>
+    <section class="rounded-lg border border-zinc-800 bg-zinc-900 p-6" aria-labelledby="pending-heading">
+      <h2 id="pending-heading" class="text-xl font-semibold">Pending administrator invitations</h2>
+      <ul class="mt-4 divide-y divide-zinc-800">
+        <% @admin_invitations.each do |invitation| %>
+          <li class="flex flex-wrap items-center justify-between gap-3 py-3">
+            <div><p><%= invitation.email %></p><p class="text-sm text-zinc-400">Expires <%= l(invitation.expires_at, format: :long) %></p></div>
+            <%= button_to "Revoke invitation", admin_invitation_path(invitation), method: :delete, class: "rounded border border-zinc-700 px-3 py-2 text-sm", data: { turbo_confirm: "Revoke this administrator invitation?" } %>
+          </li>
+        <% end %>
+      </ul>
+    </section>
+  <% end %>
+
+  <section class="rounded-lg border border-zinc-800 bg-zinc-900 p-6" aria-labelledby="password-heading">
+    <h2 id="password-heading" class="text-xl font-semibold">Change your password</h2>
+    <%= form_with url: admin_password_path, method: :patch, class: "mt-4 space-y-4" do |form| %>
+      <div>
+        <%= label_tag "change_current_password", "Current password", class: "block text-sm font-medium" %>
+        <%= password_field_tag :current_password, nil, id: "change_current_password", required: true, autocomplete: "current-password", class: "mt-1 w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-white" %>
+      </div>
+      <div>
+        <%= label_tag "admin_user_password", "New password (at least 12 characters)", class: "block text-sm font-medium" %>
+        <%= password_field_tag "admin_user[password]", nil, required: true, minlength: 12, maxlength: 72, autocomplete: "new-password", class: "mt-1 w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-white" %>
+      </div>
+      <div>
+        <%= label_tag "admin_user_password_confirmation", "Confirm new password", class: "block text-sm font-medium" %>
+        <%= password_field_tag "admin_user[password_confirmation]", nil, required: true, autocomplete: "new-password", class: "mt-1 w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-white" %>
+      </div>
+      <%= form.submit "Change password", class: "cursor-pointer rounded bg-cyan-300 px-4 py-2 font-semibold text-zinc-950 hover:bg-cyan-200" %>
+    <% end %>
+  </section>
+</div>

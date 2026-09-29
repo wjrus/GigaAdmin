@@ -1,0 +1,10 @@
+<div class="rounded-lg border border-amber-500/40 bg-amber-950/40 p-4 text-sm leading-6 text-amber-100">
+  <% if AdminUser.configured_super_admin_emails.include?(@invitation.email) %>
+    <strong>Super Admin access:</strong> this email is listed in ADMIN_USERS and will also have super administrator access, including permission to invite and remove GigaAdmin administrators.
+    This account can invite Plex users, grant or revoke library access, remove shares, and view playback history and IP addresses.
+  <% else %>
+    <strong>Plex sharing administration:</strong> can invite Plex users, grant or revoke library access, remove shares, and view playback history and IP addresses.
+    This account cannot invite or remove GigaAdmin administrators.
+  <% end %>
+  Invite only someone you trust to manage sharing on your Plex server.
+</div>
