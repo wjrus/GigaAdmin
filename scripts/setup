@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+fail() {
+  printf 'Setup failed: %s\n' "$*" >&2
+  exit 1
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  cat <<'USAGE'
+Usage: ./scripts/setup
+
+Prepare a new Docker installation with private environment files and fresh
+application/database secrets. Existing environment files are never overwritten.
+This does not build or start containers. Native development uses bin/setup.
+USAGE
+  exit 0
+fi
+[[ $# -eq 0 ]] || fail "unexpected arguments; see --help"
+
+command -v openssl >/dev/null || fail "openssl is required to generate secrets"
+targets=(.env .env.production .env.postgres)
+templates=(.env.docker.example .env.production.example .env.postgres.example)
+
+for target in "${targets[@]}"; do
+  [[ ! -e "$target" && ! -L "$target" ]] ||
+    fail "$target already exists; preserve existing settings and use scripts/deploy to update an installation"
+done
+for template in "${templates[@]}"; do
+  [[ -f "$template" ]] || fail "missing template: $template"
+done
+
+umask 077
+mkdir -p tmp
+mkdir tmp/setup.lock 2>/dev/null ||
+  fail "another setup holds tmp/setup.lock; remove it only after confirming that setup has stopped"
+
+staging=""
+published=()
+cleanup() {
+  local status=$?
+  local target
+  trap - EXIT
+  if [[ $status -ne 0 ]]; then
+    for target in ${published[@]+"${published[@]}"}; do
+      # Remove only the files this invocation published, never a replacement.
+      if [[ -n "$staging" && "$ROOT/$target" -ef "$staging/$target" ]]; then
+        rm -- "$ROOT/$target"
+      fi
+    done
+  fi
+  [[ -z "$staging" ]] || rm -rf -- "$staging"
+  rmdir "$ROOT/tmp/setup.lock"
+  exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+staging="$(mktemp -d "$ROOT/tmp/setup.XXXXXX")"
+app_secret="$(openssl rand -hex 64)"
+database_password="$(openssl rand -hex 32)"
+client_identifier="gigaadmin-$(openssl rand -hex 16)"
+[[ "$app_secret" =~ ^[0-9a-f]{128}$ && "$database_password" =~ ^[0-9a-f]{64}$ &&
+  "$client_identifier" =~ ^gigaadmin-[0-9a-f]{32}$ ]] || fail "secret generation returned an unexpected value"
+
+render_template() {
+  local line
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    case "$line" in
+      SECRET_KEY_BASE=*) printf 'SECRET_KEY_BASE=%s\n' "$app_secret" ;;
+      PLEX_DATABASE_PASSWORD=*) printf 'PLEX_DATABASE_PASSWORD=%s\n' "$database_password" ;;
+      POSTGRES_PASSWORD=*) printf 'POSTGRES_PASSWORD=%s\n' "$database_password" ;;
+      PLEX_CLIENT_IDENTIFIER=*) printf 'PLEX_CLIENT_IDENTIFIER=%s\n' "$client_identifier" ;;
+      *) printf '%s\n' "$line" ;;
+    esac
+  done < "$1"
+}
+
+for index in "${!targets[@]}"; do
+  render_template "${templates[$index]}" > "$staging/${targets[$index]}"
+  chmod 600 "$staging/${targets[$index]}"
+done
+
+for target in "${targets[@]}"; do
+  # Hard-link creation is atomic and fails if a destination appeared meanwhile.
+  ln "$staging/$target" "$ROOT/" || fail "could not create $target; existing files were preserved"
+  published+=("$target")
+done
+
+cat <<'NEXT'
+Created .env, .env.production, and .env.postgres with private permissions.
+Application and database secrets were generated without displaying them.
+
+Next:
+  1. Edit .env.production with your Plex token, machine identifier, and server URL.
+     See docs/configuration.md for finding these values.
+  2. Run ./scripts/deploy to build and start GigaAdmin.
+  3. Open http://localhost:3010 and create the first administrator privately.
+
+Google sign-in is optional. See docs/docker.md for setup and remote-host access.
+NEXT

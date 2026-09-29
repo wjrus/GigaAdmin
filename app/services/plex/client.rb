@@ -13,7 +13,7 @@ module Plex
 
     def self.from_env
       token = ENV["PLEX_TOKEN"].presence
-      raise ConfigurationError, "Missing PLEX_TOKEN in .env" unless token
+      raise ConfigurationError, "Missing PLEX_TOKEN" unless token
 
       new(
         token: token,

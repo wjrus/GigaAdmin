@@ -60,6 +60,6 @@ class MaintenanceController < ApplicationController
 
   def required_machine_identifier
     ENV["PLEX_MACHINE_IDENTIFIER"].presence ||
-      raise(Plex::ConfigurationError, "Missing PLEX_MACHINE_IDENTIFIER in .env")
+      raise(Plex::ConfigurationError, "Missing PLEX_MACHINE_IDENTIFIER")
   end
 end

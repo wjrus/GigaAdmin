@@ -62,11 +62,14 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      web:
+        condition: service_healthy
     command: ["./docker/daily-refresh"]
     volumes:
       - app_storage:/rails/storage
 
   now_playing_sampler:
+    profiles: [sampling]
     image: gigaadmin:production
     restart: unless-stopped
     env_file:
@@ -78,6 +81,8 @@ services:
       PLEX_DATABASE_USERNAME: plex
     depends_on:
       db:
+        condition: service_healthy
+      web:
         condition: service_healthy
     command: ["bash", "./docker/now-playing-sampler"]
     volumes:

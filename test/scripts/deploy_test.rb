@@ -15,10 +15,14 @@ class DeployScriptTest < ActiveSupport::TestCase
     File.write(File.join(@directory, ".git"), "gitdir: /unused-test-path\n")
     stub_command("git", 'if [[ "$1" == rev-parse ]]; then echo abc123; fi')
     stub_command("docker", <<~BASH)
-      if [[ "$*" == "compose ps --status running --status restarting --services" ]]; then
+      if [[ "$*" == "compose --profile sampling ps --status running --status restarting --services" ]]; then
         printf '%s\\n' "${TEST_RUNNING_SERVICES:-web}"
       elif [[ "$*" == "compose ps -q"* ]]; then
         echo fixture-container
+      elif [[ "$*" == "compose port web 80" ]]; then
+        printf '%s\\n' "${TEST_PUBLISHED_ENDPOINT-0.0.0.0:3010}"
+      elif [[ "$*" == "compose exec -T web printenv PLEX_HOST" ]]; then
+        printf '%s\\n' "${TEST_PLEX_HOST-admin.example.test}"
       elif [[ "$1" == inspect ]]; then
         echo healthy
       fi
@@ -35,6 +39,7 @@ class DeployScriptTest < ActiveSupport::TestCase
 
     assert status.success?, output
     assert_includes commands, "git pull --ff-only"
+    assert_includes commands, "docker compose --profile sampling ps --status running --status restarting --services"
     assert_includes commands, "docker compose up -d --no-deps web daily_refresh now_playing_sampler"
     assert_includes commands, "curl --connect-timeout 2 --max-time 3"
     assert_not File.exist?(File.join(@directory, "tmp/deploy.lock"))
@@ -46,6 +51,60 @@ class DeployScriptTest < ActiveSupport::TestCase
     assert status.success?, output
     assert_includes commands, "docker compose up -d --no-deps web daily_refresh\n"
     assert_not_includes commands, "daily_refresh now_playing_sampler"
+  end
+
+  test "probes the published port and bind using the running container hostname" do
+    File.write(File.join(@directory, ".env"), "PLEX_ADMIN_BIND=192.0.2.15\nPLEX_ADMIN_PORT=3042\n")
+
+    output, status = deploy(
+      "TEST_PUBLISHED_ENDPOINT" => "192.0.2.15:3042",
+      "TEST_PLEX_HOST" => "configured.example.test"
+    )
+
+    assert status.success?, output
+    assert_includes commands, "docker compose port web 80"
+    assert_includes commands, "docker compose exec -T web printenv PLEX_HOST"
+    assert_includes commands, "--noproxy * --globoff -fsSI -H Host: configured.example.test http://192.0.2.15:3042/up"
+    assert_not_includes commands, "http://127.0.0.1:3010/up"
+  end
+
+  test "maps wildcard IPv4 to loopback and chooses the first published mapping" do
+    output, status = deploy("TEST_PUBLISHED_ENDPOINT" => "0.0.0.0:3043\n[::]:3043")
+
+    assert status.success?, output
+    assert_includes commands, "http://127.0.0.1:3043/up"
+    assert_not_includes commands, "http://0.0.0.0:3043/up"
+  end
+
+  test "maps wildcard IPv6 to a bracketed loopback URL" do
+    output, status = deploy("TEST_PUBLISHED_ENDPOINT" => "[::]:3044")
+
+    assert status.success?, output
+    assert_includes commands, "http://[::1]:3044/up"
+  end
+
+  test "retains a specific IPv6 bind in the health URL" do
+    output, status = deploy("TEST_PUBLISHED_ENDPOINT" => "[2001:db8::15]:3045")
+
+    assert status.success?, output
+    assert_includes commands, "http://[2001:db8::15]:3045/up"
+  end
+
+  test "fails clearly when the web port is not published" do
+    output, status = deploy("TEST_PUBLISHED_ENDPOINT" => "")
+
+    assert_not status.success?
+    assert_includes output, "web has no usable published TCP port"
+    assert_not_includes commands, "curl "
+    assert_not File.exist?(File.join(@directory, "tmp/deploy.lock"))
+  end
+
+  test "rejects a malformed published endpoint before requesting HTTP" do
+    output, status = deploy("TEST_PUBLISHED_ENDPOINT" => "127.0.0.1:not-a-port")
+
+    assert_not status.success?
+    assert_includes output, "web has no usable published TCP port"
+    assert_not_includes commands, "curl "
   end
 
   test "rejects a concurrent deployment before invoking external commands" do

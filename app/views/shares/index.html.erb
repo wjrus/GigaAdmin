@@ -15,8 +15,11 @@
       <h2 class="text-lg font-semibold text-amber-100">Configuration needed</h2>
       <p class="mt-2 text-sm leading-6 text-amber-50/80"><%= @configuration_error %></p>
       <p class="mt-4 text-sm leading-6 text-amber-50/80">
-        Create <code class="rounded bg-black/30 px-1.5 py-0.5">.env</code> from
-        <code class="rounded bg-black/30 px-1.5 py-0.5">.env.example</code>, then add your Plex token and machine identifier.
+        Add your Plex owner token, machine identifier, and server URL to
+        <code class="rounded bg-black/30 px-1.5 py-0.5">.env.production</code> for Docker,
+        or <code class="rounded bg-black/30 px-1.5 py-0.5">.env</code> for local development.
+        After changing Docker settings, recreate the application containers to load them.
+        For local development, restart the app.
       </p>
     </section>
   <% elsif @plex_error.present? %>

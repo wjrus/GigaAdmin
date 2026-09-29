@@ -49,13 +49,6 @@ set_app_revision() {
   log "Using app revision ${APP_REVISION}"
 }
 
-env_value() {
-  local key="$1"
-  local file="$2"
-
-  awk -F= -v key="$key" '$1 == key { print substr($0, length(key) + 2); exit }' "$file"
-}
-
 container_state() {
   local service="$1"
   local container_id
@@ -100,15 +93,35 @@ wait_for_http() {
   local timeout_seconds="$1"
   local deadline=$((SECONDS + timeout_seconds))
   local app_host
+  local published_endpoint
+  local bind_address
   local port
+  local health_url
 
-  app_host="$(env_value PLEX_HOST .env.production)"
+  # Read only the public hostname, never the container's complete environment.
+  app_host="$(compose exec -T web printenv PLEX_HOST)" || app_host=""
   app_host="${app_host:-plexadmin.example.com}"
-  port="${PLEX_ADMIN_PORT:-3010}"
+  published_endpoint="$(compose port web 80)" || fail "could not determine the published web port"
+  # Compose may report both IPv4 and IPv6 mappings. Probe its first mapping.
+  published_endpoint="${published_endpoint%%$'\n'*}"
+  bind_address="${published_endpoint%:*}"
+  port="${published_endpoint##*:}"
+  bind_address="${bind_address#\[}"
+  bind_address="${bind_address%\]}"
+
+  [[ "$published_endpoint" == *:* && "$bind_address" =~ ^[0-9a-fA-F:.]+$ && "$port" =~ ^[0-9]+$ ]] ||
+    fail "web has no usable published TCP port"
+
+  case "$bind_address" in
+    0.0.0.0) bind_address="127.0.0.1" ;;
+    ::) bind_address="::1" ;;
+  esac
+  [[ "$bind_address" != *:* ]] || bind_address="[$bind_address]"
+  health_url="http://${bind_address}:${port}/up"
 
   while (( SECONDS < deadline )); do
-    if curl --connect-timeout 2 --max-time 3 -fsSI -H "Host: ${app_host}" "http://127.0.0.1:${port}/up" >/dev/null; then
-      printf "http://127.0.0.1:%s/up responded for Host: %s\n" "$port" "$app_host"
+    if curl --connect-timeout 2 --max-time 3 --noproxy '*' --globoff -fsSI -H "Host: ${app_host}" "$health_url" >/dev/null; then
+      printf "%s responded for Host: %s\n" "$health_url" "$app_host"
       return 0
     fi
 
@@ -116,7 +129,7 @@ wait_for_http() {
   done
 
   compose logs --tail=120 web >&2 || true
-  fail "web did not answer /up on port ${port} within ${timeout_seconds}s"
+  fail "web did not answer ${health_url} within ${timeout_seconds}s"
 }
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
@@ -128,7 +141,9 @@ Builds the production image, starts PostgreSQL, runs db:prepare, starts the web
 container, and verifies the local reverse-proxy target.
 An already-running now-playing sampler is updated with the new image too.
 
-Set PLEX_ADMIN_PORT=3011 ./scripts/deploy to bind a different localhost port.
+Compose reads PLEX_ADMIN_BIND and PLEX_ADMIN_PORT from .env when present.
+Shell overrides also work: PLEX_ADMIN_PORT=3011 ./scripts/deploy.
+Health checks use the running container's published address and port.
 USAGE
   exit 0
 fi
@@ -149,7 +164,7 @@ set_app_revision
 compose config --quiet
 
 services=(web daily_refresh)
-running_services="$(compose ps --status running --status restarting --services)"
+running_services="$(compose --profile sampling ps --status running --status restarting --services)"
 if [[ $'\n'"$running_services"$'\n' == *$'\nnow_playing_sampler\n'* ]]; then
   services+=(now_playing_sampler)
 fi

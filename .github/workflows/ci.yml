@@ -172,3 +172,36 @@ jobs:
           name: screenshots
           path: ${{ github.workspace }}/tmp/screenshots
           if-no-files-found: ignore
+
+  docker-install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Prepare a disposable installation without external credentials
+        run: |
+          ./scripts/setup
+          docker compose --project-name gigaadmin-ci config --quiet
+
+      - name: Build and start the fresh installation
+        run: docker compose --project-name gigaadmin-ci up --build -d --wait --wait-timeout 300 web
+
+      - name: Verify first administrator setup and password sign-in
+        run: python3 test/docker/smoke.py
+
+      - name: Show service logs after a failure
+        if: failure()
+        run: |
+          if [[ -f .env.production && -f .env.postgres ]]; then
+            docker compose --project-name gigaadmin-ci logs --no-color --tail=100 web db
+          fi
+
+      - name: Remove only the disposable CI installation and its data
+        if: always()
+        run: |
+          if [[ -f .env.production && -f .env.postgres ]]; then
+            docker compose --project-name gigaadmin-ci down --volumes --remove-orphans
+          fi

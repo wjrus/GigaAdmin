@@ -40,7 +40,7 @@ module Plex
     end
 
     def call
-      raise ConfigurationError, "Missing PLEX_MACHINE_IDENTIFIER in .env" unless machine_identifier
+      raise ConfigurationError, "Missing PLEX_MACHINE_IDENTIFIER" unless machine_identifier
 
       server_data = client.server(machine_identifier)
       library_lookup = build_library_lookup(server_data[:sections])
