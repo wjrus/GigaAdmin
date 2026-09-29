@@ -21,13 +21,17 @@ class DeployScriptTest < ActiveSupport::TestCase
         echo fixture-container
       elif [[ "$*" == "compose port web 80" ]]; then
         printf '%s\\n' "${TEST_PUBLISHED_ENDPOINT-0.0.0.0:3010}"
+      elif [[ "$*" == "compose port web 443" ]]; then
+        printf '%s\\n' "${TEST_PUBLISHED_TLS_ENDPOINT-0.0.0.0:3443}"
       elif [[ "$*" == "compose exec -T web printenv PLEX_HOST" ]]; then
         printf '%s\\n' "${TEST_PLEX_HOST-admin.example.test}"
+      elif [[ "$*" == "compose exec -T web printenv GIGAADMIN_SSL_MODE" ]]; then
+        printf '%s\\n' "${TEST_SSL_MODE-proxy}"
       elif [[ "$1" == inspect ]]; then
         echo healthy
       fi
     BASH
-    stub_command("curl", "exit 0")
+    stub_command("curl", "printf '200'")
   end
 
   teardown do
@@ -64,7 +68,7 @@ class DeployScriptTest < ActiveSupport::TestCase
     assert status.success?, output
     assert_includes commands, "docker compose port web 80"
     assert_includes commands, "docker compose exec -T web printenv PLEX_HOST"
-    assert_includes commands, "--noproxy * --globoff -fsSI -H Host: configured.example.test http://192.0.2.15:3042/up"
+    assert_includes commands, "--noproxy * --globoff -fsS --head --output /dev/null --write-out %{http_code} -H Host: configured.example.test http://192.0.2.15:3042/up"
     assert_not_includes commands, "http://127.0.0.1:3010/up"
   end
 
@@ -88,6 +92,102 @@ class DeployScriptTest < ActiveSupport::TestCase
 
     assert status.success?, output
     assert_includes commands, "http://[2001:db8::15]:3045/up"
+  end
+
+  test "local mode probes HTTP and an omitted mode preserves proxy behavior" do
+    %w[local].push("").each do |mode|
+      output, status = deploy("TEST_SSL_MODE" => mode)
+
+      assert status.success?, output
+      assert_includes commands, "docker compose port web 80"
+      assert_not_includes commands, "docker compose port web 443"
+    end
+  end
+
+  test "letsencrypt probes the TLS port with the public hostname and certificate verification" do
+    output, status = deploy(
+      "TEST_SSL_MODE" => "letsencrypt",
+      "TEST_PUBLISHED_TLS_ENDPOINT" => "0.0.0.0:3443",
+      "TEST_PLEX_HOST" => "gigaadmin.example.test"
+    )
+
+    assert status.success?, output
+    assert_includes commands, "docker compose port web 443"
+    assert_not_includes commands, "docker compose port web 80"
+    assert_includes commands, "--noproxy * --globoff"
+    assert_includes commands, "--resolve gigaadmin.example.test:3443:127.0.0.1 https://gigaadmin.example.test:3443/up"
+    assert_not_includes commands, "--insecure"
+    assert_not_includes commands, " -k "
+  end
+
+  test "letsencrypt maps wildcard IPv6 to a bracketed loopback resolution" do
+    output, status = deploy("TEST_SSL_MODE" => "letsencrypt", "TEST_PUBLISHED_TLS_ENDPOINT" => "[::]:443")
+
+    assert status.success?, output
+    assert_includes commands, "--resolve admin.example.test:443:[::1] https://admin.example.test:443/up"
+  end
+
+  test "letsencrypt retains a specific IPv6 bind in hostname resolution" do
+    output, status = deploy("TEST_SSL_MODE" => "letsencrypt", "TEST_PUBLISHED_TLS_ENDPOINT" => "[2001:db8::15]:3445")
+
+    assert status.success?, output
+    assert_includes commands, "--resolve admin.example.test:3445:[2001:db8::15] https://admin.example.test:3445/up"
+  end
+
+  test "a redirect response is retried rather than accepted as healthy" do
+    stub_command("curl", <<~BASH)
+      if [[ ! -f "$TEST_COMMAND_LOG.first-curl" ]]; then
+        touch "$TEST_COMMAND_LOG.first-curl"
+        printf '302'
+      else
+        printf '200'
+      fi
+    BASH
+
+    output, status = deploy
+
+    assert status.success?, output
+    assert_equal 2, commands.lines.count { |line| line.start_with?("curl ") }
+    assert_includes output, "returned HTTP 200"
+  end
+
+  test "a failed curl request is retried even if it emits a success status" do
+    stub_command("curl", <<~BASH)
+      printf '200'
+      if [[ ! -f "$TEST_COMMAND_LOG.first-curl" ]]; then
+        touch "$TEST_COMMAND_LOG.first-curl"
+        exit 60
+      fi
+    BASH
+
+    output, status = deploy("TEST_SSL_MODE" => "letsencrypt")
+
+    assert status.success?, output
+    assert_equal 2, commands.lines.count { |line| line.start_with?("curl ") }
+  end
+
+  test "rejects an unsafe public hostname before making a request" do
+    output, status = deploy("TEST_SSL_MODE" => "letsencrypt", "TEST_PLEX_HOST" => "https://admin.example.test/path")
+
+    assert_not status.success?
+    assert_includes output, "PLEX_HOST must be a hostname"
+    assert_not_includes commands, "curl "
+  end
+
+  test "rejects an unrecognized SSL mode" do
+    output, status = deploy("TEST_SSL_MODE" => "invalid")
+
+    assert_not status.success?
+    assert_includes output, "GIGAADMIN_SSL_MODE must be local, proxy, or letsencrypt"
+    assert_not_includes commands, "curl "
+  end
+
+  test "rejects an out of range published TLS port" do
+    output, status = deploy("TEST_SSL_MODE" => "letsencrypt", "TEST_PUBLISHED_TLS_ENDPOINT" => "0.0.0.0:65536")
+
+    assert_not status.success?
+    assert_includes output, "web has no usable published TCP port"
+    assert_not_includes commands, "curl "
   end
 
   test "fails clearly when the web port is not published" do

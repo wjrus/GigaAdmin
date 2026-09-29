@@ -43,10 +43,12 @@ sign-in if you prefer.
 ```sh
 git clone https://github.com/wjrus/GigaAdmin.git
 cd GigaAdmin
-./scripts/setup
+./scripts/setup --ssl-mode local
 ```
 
-The setup script generates local configuration files and database secrets. Add
+This selects localhost HTTP for private first setup. Without that option, setup
+defaults to HTTPS termination at your existing upstream proxy. The script
+generates local configuration files and database secrets. Add
 your Plex settings to `.env.production` as described in the guide, then start the
 app:
 
@@ -59,7 +61,9 @@ refresh. That first local account becomes a super administrator. Only super
 administrators can invite or remove other GigaAdmin administrators; set
 `ADMIN_USERS` to designate additional super administrators explicitly.
 Complete that first visit before exposing the app to other people. For access
-beyond the Docker host, follow the guide's HTTPS and reverse proxy instructions.
+beyond the Docker host, select external SSL termination (the default) or built-in
+Let's Encrypt using the [HTTPS guide](docs/deploy.md#add-https-access). Nginx is
+optional: the image already includes the Puma web server and Thruster proxy.
 
 **Every GigaAdmin administrator can change who has access to your Plex
 libraries.** Inviting an administrator delegates sharing control through the

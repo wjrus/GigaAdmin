@@ -11,15 +11,30 @@ fail() {
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'USAGE'
-Usage: ./scripts/setup
+Usage: ./scripts/setup [--ssl-mode local|proxy|letsencrypt]
 
 Prepare a new Docker installation with private environment files and fresh
 application/database secrets. Existing environment files are never overwritten.
 This does not build or start containers. Native development uses bin/setup.
+
+SSL modes:
+  proxy        External HTTPS termination (default).
+  local        Private localhost HTTP, suitable for first-administrator setup.
+  letsencrypt  Built-in HTTPS; requires domain and certificate configuration.
+
+Example: ./scripts/setup --ssl-mode local
 USAGE
   exit 0
 fi
-[[ $# -eq 0 ]] || fail "unexpected arguments; see --help"
+ssl_mode=proxy
+if [[ $# -gt 0 ]]; then
+  [[ $# -eq 2 && "$1" == "--ssl-mode" ]] || fail "expected --ssl-mode local|proxy|letsencrypt; see --help"
+  ssl_mode="$2"
+fi
+case "$ssl_mode" in
+  local|proxy|letsencrypt) ;;
+  *) fail "SSL mode must be local, proxy, or letsencrypt" ;;
+esac
 
 command -v openssl >/dev/null || fail "openssl is required to generate secrets"
 targets=(.env .env.production .env.postgres)
@@ -75,6 +90,7 @@ render_template() {
       PLEX_DATABASE_PASSWORD=*) printf 'PLEX_DATABASE_PASSWORD=%s\n' "$database_password" ;;
       POSTGRES_PASSWORD=*) printf 'POSTGRES_PASSWORD=%s\n' "$database_password" ;;
       PLEX_CLIENT_IDENTIFIER=*) printf 'PLEX_CLIENT_IDENTIFIER=%s\n' "$client_identifier" ;;
+      GIGAADMIN_SSL_MODE=*) printf 'GIGAADMIN_SSL_MODE=%s\n' "$ssl_mode" ;;
       *) printf '%s\n' "$line" ;;
     esac
   done < "$1"
@@ -98,8 +114,33 @@ Application and database secrets were generated without displaying them.
 Next:
   1. Edit .env.production with your Plex token, machine identifier, and server URL.
      See docs/configuration.md for finding these values.
+NEXT
+
+case "$ssl_mode" in
+  local)
+    cat <<'NEXT'
   2. Run ./scripts/deploy to build and start GigaAdmin.
   3. Open http://localhost:3010 and create the first administrator privately.
+NEXT
+    ;;
+  proxy)
+    cat <<'NEXT'
+  2. Configure your HTTPS hostname and external reverse proxy (docs/deploy.md).
+  3. Run ./scripts/deploy to build and start GigaAdmin.
+  4. Create the first administrator through a private or restricted connection
+     before allowing other people to reach the application.
+NEXT
+    ;;
+  letsencrypt)
+    cat <<'NEXT'
+  2. Configure your public hostname and built-in HTTPS (docs/deploy.md).
+  3. Run ./scripts/deploy to build and start GigaAdmin.
+  4. Create the first administrator before allowing other people to reach the
+     application. Follow the guide's private initial-setup instructions.
+NEXT
+    ;;
+esac
 
+cat <<'NEXT'
 Google sign-in is optional. See docs/docker.md for setup and remote-host access.
 NEXT

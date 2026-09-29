@@ -39,7 +39,8 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS -H \"Host: $${PLEX_HOST:-plexadmin.example.com}\" http://127.0.0.1/up >/dev/null"]
+      # Probe Puma directly; Thruster may redirect HTTP while waiting for TLS.
+      test: ["CMD-SHELL", "curl -fsS -H \"Host: $${PLEX_HOST:-plexadmin.example.com}\" http://127.0.0.1:$${THRUSTER_TARGET_PORT:-$${TARGET_PORT:-3000}}/up >/dev/null"]
       interval: 30s
       timeout: 3s
       start_period: 20s

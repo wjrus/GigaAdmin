@@ -4,9 +4,13 @@ For a new installation, follow [Docker setup](docker.md). This guide covers
 HTTPS access, updates, backups, recovery, and longer-running Plex imports. Run
 commands from your GigaAdmin checkout unless stated otherwise.
 
-The Compose stack contains the web app, PostgreSQL, a daily refresh service, and
-an optional live-session sampler. It does not include a reverse proxy. Use your
-existing nginx, Caddy, Nginx Proxy Manager, or equivalent HTTPS proxy.
+The image includes Puma and Thruster and can serve GigaAdmin directly. **Nginx
+is not required**, whether you start the container with Compose or `docker run`.
+Compose coordinates the app, PostgreSQL, and refresh services; it does not
+determine how HTTPS is provided. External termination at an existing HTTPS
+proxy is the default, including when `GIGAADMIN_SSL_MODE` is unset. Choose
+`letsencrypt` for Thruster's automatic HTTPS or explicitly choose `local` for
+private HTTP setup.
 
 ## Add HTTPS access
 
@@ -16,19 +20,68 @@ administrator access; emails in `ADMIN_USERS` also receive that role. Only super
 administrators can invite or remove GigaAdmin administrators. All administrators
 can change Plex library sharing and see playback history.
 
+### Direct HTTPS with Thruster
+
+The bundled Thruster supports automatic Let's Encrypt certificates, so a
+dedicated Docker host does not need another proxy. This requires a public
+hostname pointing to the host, inbound ports 80 and 443 reaching the container,
+and outbound access for certificate issuance and renewal. If those host ports
+already belong to another application or proxy, use that proxy instead or a
+separate IP address.
+
+After completing private setup, set these values in `.env.production`:
+
+```dotenv
+GIGAADMIN_SSL_MODE=letsencrypt
+PLEX_HOST=gigaadmin.example.com
+PLEX_HOSTS=gigaadmin.example.com
+```
+
+The Docker entrypoint configures Thruster's domain from `PLEX_HOST`, stores
+certificates under `/rails/storage/thruster`, and enables both Rails
+`assume_ssl` and `force_ssl`. A missing or invalid public hostname prevents
+startup instead of silently serving HTTP.
+
+When recreating a plain Docker container, replace its localhost publish option
+with `--publish 80:80 --publish 443:443` and retain the same database settings and
+storage volume. `/rails/storage` must remain persistent: it contains Thruster's
+certificates as well as application storage. Configure DNS and the firewall
+before starting this public listener, then verify login at
+`https://gigaadmin.example.com` and certificate renewal in your deployment.
+
+The default Compose file publishes only its backend HTTP port. For direct HTTPS
+with Compose 2.24.4 or newer, add this to `.env`:
+
+```dotenv
+COMPOSE_FILE=compose.yml:compose.letsencrypt.yml
+```
+
+The provided override publishes host ports 80 and 443. Leave `COMPOSE_FILE`
+unset for external termination or local setup. If you already use Compose
+overrides, include those files explicitly as well and validate the configuration
+with `docker compose config --quiet`. The SSL mode controls the
+container; publishing host ports is a separate Docker setting.
+See [Thruster's documentation](https://github.com/basecamp/thruster#custom-configuration)
+for its TLS and storage settings. Certificate issuance requires a real domain
+and has not been exercised by the local or CI installation smoke tests.
+
+### HTTPS through an existing proxy
+
 Choose a hostname, point its DNS at your reverse proxy, and obtain a certificate
 for it. In `.env.production`, replace the example hostname with yours:
 
 ```dotenv
+GIGAADMIN_SSL_MODE=proxy
 PLEX_HOST=gigaadmin.example.com
 PLEX_HOSTS=gigaadmin.example.com
-PLEX_ASSUME_SSL=true
-PLEX_FORCE_SSL=false
 ```
 
-`PLEX_ASSUME_SSL=true` tells Rails that HTTPS terminates at the proxy. Keep the
-backend port private to that proxy. `PLEX_FORCE_SSL` is separate and normally
-unnecessary when the proxy redirects HTTP to HTTPS.
+This is the default when the mode is omitted. The Docker entrypoint enables
+both Rails `assume_ssl` and `force_ssl`, disables Thruster certificate handling,
+and serves HTTP to the upstream proxy. Rails treats the request as HTTPS and
+sets secure cookies and HSTS. Keep the backend port private to your proxy and
+redirect public HTTP to HTTPS at the edge. Existing deployments use this same
+external-termination default without needing the new variable.
 
 In `.env`, keep the generated loopback bind when the proxy runs directly on the
 Docker host:
@@ -44,7 +97,7 @@ container's `127.0.0.1` means that container, not the Docker host. Its upstream
 would be `http://<docker-host-private-ip>:3010`. Do not forward this HTTP port
 from the public internet.
 
-### nginx example
+#### Optional nginx example
 
 This log format and two server blocks belong in nginx's `http` context, usually
 through your site's included configuration file. They assume

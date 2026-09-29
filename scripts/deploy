@@ -93,15 +93,28 @@ wait_for_http() {
   local timeout_seconds="$1"
   local deadline=$((SECONDS + timeout_seconds))
   local app_host
+  local ssl_mode
+  local container_port=80
   local published_endpoint
   local bind_address
   local port
   local health_url
+  local response_code
+  local curl_options=(--connect-timeout 2 --max-time 3 --noproxy '*' --globoff -fsS --head --output /dev/null --write-out '%{http_code}')
 
-  # Read only the public hostname, never the container's complete environment.
+  # Read only public routing settings, never the complete container environment.
   app_host="$(compose exec -T web printenv PLEX_HOST)" || app_host=""
   app_host="${app_host:-plexadmin.example.com}"
-  published_endpoint="$(compose port web 80)" || fail "could not determine the published web port"
+  [[ "$app_host" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] ||
+    fail "PLEX_HOST must be a hostname without a scheme, port, or path"
+  ssl_mode="$(compose exec -T web printenv GIGAADMIN_SSL_MODE)" || ssl_mode=""
+  ssl_mode="${ssl_mode:-proxy}"
+  case "$ssl_mode" in
+    local|proxy) ;;
+    letsencrypt) container_port=443 ;;
+    *) fail "GIGAADMIN_SSL_MODE must be local, proxy, or letsencrypt" ;;
+  esac
+  published_endpoint="$(compose port web "$container_port")" || fail "could not determine the published web port"
   # Compose may report both IPv4 and IPv6 mappings. Probe its first mapping.
   published_endpoint="${published_endpoint%%$'\n'*}"
   bind_address="${published_endpoint%:*}"
@@ -109,7 +122,8 @@ wait_for_http() {
   bind_address="${bind_address#\[}"
   bind_address="${bind_address%\]}"
 
-  [[ "$published_endpoint" == *:* && "$bind_address" =~ ^[0-9a-fA-F:.]+$ && "$port" =~ ^[0-9]+$ ]] ||
+  [[ "$published_endpoint" == *:* && "$bind_address" =~ ^[0-9a-fA-F:.]+$ && "$port" =~ ^[0-9]{1,5}$ ]] &&
+    (( 10#$port >= 1 && 10#$port <= 65535 )) ||
     fail "web has no usable published TCP port"
 
   case "$bind_address" in
@@ -117,11 +131,20 @@ wait_for_http() {
     ::) bind_address="::1" ;;
   esac
   [[ "$bind_address" != *:* ]] || bind_address="[$bind_address]"
-  health_url="http://${bind_address}:${port}/up"
+  if [[ "$ssl_mode" == "letsencrypt" ]]; then
+    health_url="https://${app_host}:${port}/up"
+    # Keep certificate and SNI checks for the public hostname while connecting
+    # directly to the published address. First issuance may need a TLS handshake.
+    curl_options=(--connect-timeout 30 --max-time 30 --noproxy '*' --globoff -fsS --head --output /dev/null --write-out '%{http_code}')
+    curl_options+=(--resolve "${app_host}:${port}:${bind_address}")
+  else
+    health_url="http://${bind_address}:${port}/up"
+    curl_options+=(-H "Host: ${app_host}")
+  fi
 
   while (( SECONDS < deadline )); do
-    if curl --connect-timeout 2 --max-time 3 --noproxy '*' --globoff -fsSI -H "Host: ${app_host}" "$health_url" >/dev/null; then
-      printf "%s responded for Host: %s\n" "$health_url" "$app_host"
+    if response_code="$(curl "${curl_options[@]}" "$health_url")" && [[ "$response_code" == "200" ]]; then
+      printf "%s returned HTTP 200 for Host: %s\n" "$health_url" "$app_host"
       return 0
     fi
 
@@ -129,7 +152,7 @@ wait_for_http() {
   done
 
   compose logs --tail=120 web >&2 || true
-  fail "web did not answer ${health_url} within ${timeout_seconds}s"
+  fail "web did not return HTTP 200 from ${health_url} within ${timeout_seconds}s"
 }
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
@@ -138,7 +161,7 @@ Usage:
   ./scripts/deploy
 
 Builds the production image, starts PostgreSQL, runs db:prepare, starts the web
-container, and verifies the local reverse-proxy target.
+container, and verifies the published web endpoint (HTTPS for letsencrypt mode).
 An already-running now-playing sampler is updated with the new image too.
 
 Compose reads PLEX_ADMIN_BIND and PLEX_ADMIN_PORT from .env when present.

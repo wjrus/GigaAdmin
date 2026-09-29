@@ -1,5 +1,47 @@
 #!/bin/bash -e
 
+fail() {
+  printf 'GigaAdmin startup failed: %s\n' "$1" >&2
+  exit 1
+}
+
+validate_tls_hostname() {
+  local hostname="${PLEX_HOST:-}"
+  local label
+  local labels
+
+  [[ ${#hostname} -le 253 && "$hostname" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$ ]] ||
+    fail "letsencrypt requires PLEX_HOST to be a DNS hostname without a scheme, port, or path"
+  [[ ! "$hostname" =~ ^[0-9.]+$ && ! "$hostname" =~ (^|\.)[lL][oO][cC][aA][lL][hH][oO][sS][tT]$ ]] ||
+    fail "letsencrypt requires a public DNS hostname, not localhost or an IP address"
+
+  IFS=. read -r -a labels <<< "$hostname"
+  for label in "${labels[@]}"; do
+    [[ ${#label} -le 63 ]] || fail "PLEX_HOST contains a DNS label longer than 63 characters"
+  done
+}
+
+case "${GIGAADMIN_SSL_MODE-proxy}" in
+  local)
+    export PLEX_ASSUME_SSL=false PLEX_FORCE_SSL=false
+    unset TLS_DOMAIN THRUSTER_TLS_DOMAIN
+    ;;
+  proxy)
+    export PLEX_ASSUME_SSL=true PLEX_FORCE_SSL=true
+    unset TLS_DOMAIN THRUSTER_TLS_DOMAIN
+    ;;
+  letsencrypt)
+    validate_tls_hostname
+    export PLEX_ASSUME_SSL=true PLEX_FORCE_SSL=true
+    unset TLS_DOMAIN
+    export THRUSTER_TLS_DOMAIN="$PLEX_HOST"
+    export THRUSTER_STORAGE_PATH="${THRUSTER_STORAGE_PATH:-/rails/storage/thruster}"
+    ;;
+  *)
+    fail "GIGAADMIN_SSL_MODE must be local, letsencrypt, or proxy"
+    ;;
+esac
+
 # If running the rails server then create or migrate existing database
 if [ "${@: -2:1}" == "./bin/rails" ] && [ "${@: -1:1}" == "server" ]; then
   ./bin/rails db:prepare

@@ -1,0 +1,7 @@
+# Optional direct HTTPS publishing. Requires Docker Compose 2.24.4 or newer.
+# Select alongside compose.yml using COMPOSE_FILE; see docs/deploy.md.
+services:
+  web:
+    ports: !override
+      - "80:80"
+      - "443:443"

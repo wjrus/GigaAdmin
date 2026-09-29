@@ -183,8 +183,9 @@ jobs:
 
       - name: Prepare a disposable installation without external credentials
         run: |
-          ./scripts/setup
+          ./scripts/setup --ssl-mode local
           docker compose --project-name gigaadmin-ci config --quiet
+          docker compose --project-name gigaadmin-ci -f compose.yml -f compose.letsencrypt.yml config --quiet
 
       - name: Build and start the fresh installation
         run: docker compose --project-name gigaadmin-ci up --build -d --wait --wait-timeout 300 web

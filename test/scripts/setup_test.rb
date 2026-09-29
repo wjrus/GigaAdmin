@@ -33,8 +33,9 @@ class SetupScriptTest < ActiveSupport::TestCase
     assert_equal "127.0.0.1", compose.fetch("PLEX_ADMIN_BIND")
     assert_equal "3010", compose.fetch("PLEX_ADMIN_PORT")
     assert_equal "localhost", application.fetch("PLEX_HOST")
-    assert_equal "false", application.fetch("PLEX_ASSUME_SSL")
-    assert_equal "false", application.fetch("PLEX_FORCE_SSL")
+    assert_equal "proxy", application.fetch("GIGAADMIN_SSL_MODE")
+    assert_not application.key?("PLEX_ASSUME_SSL")
+    assert_not application.key?("PLEX_FORCE_SSL")
     assert_equal "auto", application.fetch("GIGAADMIN_AUTH_MODE")
     assert_equal "Etc/UTC", application.fetch("TZ")
     %w[PLEX_TOKEN PLEX_MACHINE_IDENTIFIER PLEX_SERVER_BASE_URL GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET].each do |key|
@@ -45,7 +46,46 @@ class SetupScriptTest < ActiveSupport::TestCase
     end
     assert_not_includes output, application.fetch("SECRET_KEY_BASE")
     assert_not_includes output, database.fetch("POSTGRES_PASSWORD")
+    assert_includes output, "external reverse proxy"
+    assert_not_includes output, "Open http://localhost:3010"
     assert_empty Dir.glob(File.join(@directory, "tmp/setup.*"))
+  end
+
+  test "explicit local mode creates private HTTP configuration and matching instructions" do
+    output, status = run_setup("--ssl-mode", "local")
+
+    assert status.success?, output
+    assert_equal "local", environment_file(".env.production").fetch("GIGAADMIN_SSL_MODE")
+    assert_equal "127.0.0.1", environment_file(".env").fetch("PLEX_ADMIN_BIND")
+    assert_includes output, "Open http://localhost:3010"
+  end
+
+  test "explicit letsencrypt mode configures built-in HTTPS without starting services" do
+    output, status = run_setup("--ssl-mode", "letsencrypt")
+
+    assert status.success?, output
+    assert_equal "letsencrypt", environment_file(".env.production").fetch("GIGAADMIN_SSL_MODE")
+    assert_includes output, "public hostname and built-in HTTPS"
+    assert_not_includes output, "Open http://localhost:3010"
+  end
+
+  test "invalid or incomplete SSL arguments leave no files or setup lock" do
+    [ [ "--ssl-mode" ], [ "--ssl-mode", "invalid" ], [ "--ssl-mode", "local", "extra" ], [ "--unknown" ] ].each do |arguments|
+      _output, status = run_setup(*arguments)
+
+      assert_not status.success?, "Accepted invalid setup arguments"
+      targets.each { |target| assert_not File.exist?(File.join(@directory, target)) }
+      assert_empty Dir.glob(File.join(@directory, "tmp/setup.*"))
+    end
+  end
+
+  test "help explains the default proxy and optional private local modes without writing configuration" do
+    output, status = run_setup("--help")
+
+    assert status.success?, output
+    assert_includes output, "External HTTPS termination (default)"
+    assert_includes output, "--ssl-mode local"
+    targets.each { |target| assert_not File.exist?(File.join(@directory, target)) }
   end
 
   test "a second run preserves every generated secret" do
@@ -156,10 +196,10 @@ class SetupScriptTest < ActiveSupport::TestCase
     FileUtils.chmod(0o755, path)
   end
 
-  def run_setup
+  def run_setup(*arguments)
     Open3.capture2e(
       { "PATH" => "#{@directory}/bin:#{ENV.fetch('PATH')}" },
-      "bash", File.join(@directory, "scripts/setup"), chdir: Dir.tmpdir
+      "bash", File.join(@directory, "scripts/setup"), *arguments, chdir: Dir.tmpdir
     )
   end
 end

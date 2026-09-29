@@ -8,7 +8,7 @@ GigaAdmin manages one Plex server per installation. It uses your server owner's 
 
 New installations use `GIGAADMIN_AUTH_MODE=auto`. With no Google OAuth credentials, GigaAdmin uses local email/password accounts. If both Google credentials are configured, `auto` uses Google sign-in, preserving existing Google installations. Set `local` or `google` explicitly if you want to pin the sign-in method; explicit Google mode does not fall back to local accounts if its credentials are missing.
 
-For local accounts, open GigaAdmin on localhost and create the first administrator at `/setup` before exposing the app to your network. Use your email address and a password of at least 12 characters. This first account is the **super administrator**, who controls access to GigaAdmin itself. Setup closes after the first account is created. The account belongs to GigaAdmin; it does not create or change a Plex account.
+For local accounts, use the Docker guide's explicit `local` SSL mode to open GigaAdmin on localhost and create the first administrator at `/setup` before exposing the app to your network. An existing HTTPS proxy with restricted access also works. Use your email address and a password of at least 12 characters. This first account is the **super administrator**, who controls access to GigaAdmin itself. Setup closes after the first account is created. The account belongs to GigaAdmin; it does not create or change a Plex account.
 
 Only super administrators can invite or remove GigaAdmin administrators at `/admin/users`. Ordinary administrators can change their own passwords and use the Plex administration features. Password changes and invitation creation require your current password. Invitations create an email-bound, single-use link that expires after 48 hours; copy and send it to the intended administrator yourself. The recipient chooses their password. GigaAdmin does not require SMTP or send the invitation automatically. **Every administrator has full access to GigaAdmin's Plex sharing controls**, including changing library access and removing shares; the super role additionally controls who can administer GigaAdmin.
 
@@ -110,6 +110,25 @@ GigaAdmin requests only `openid`, `email`, and `profile`. Google's **Testing** s
 
 The Google allowlist is checked on every authenticated request. Removing an email takes effect for existing sessions after the changed environment is loaded. These administrator emails need not match the Plex owner's email.
 
+## Choose HTTPS handling
+
+For Docker deployments, set `GIGAADMIN_SSL_MODE` in `.env.production`:
+
+| Mode | Behavior |
+| --- | --- |
+| `proxy` (default, including when unset) | Your upstream proxy terminates HTTPS. The app serves HTTP internally with Rails `assume_ssl` and `force_ssl` enabled. |
+| `letsencrypt` | Thruster obtains and renews certificates for `PLEX_HOST`. Publish ports 80/443 and preserve the storage volume. Rails enables both SSL settings. |
+| `local` | Plain HTTP for private localhost setup; both Rails SSL settings are disabled. Select this explicitly. |
+
+`scripts/setup` defaults to `proxy`; `scripts/setup --ssl-mode local` opts into
+private HTTP bootstrap. The Docker entrypoint applies the selected mode to all
+application services, overriding the lower-level `PLEX_ASSUME_SSL` and
+`PLEX_FORCE_SSL` variables. It disables built-in TLS in proxy/local modes so an
+old Thruster setting cannot unexpectedly acquire certificates. The
+[HTTPS deployment guide](deploy.md#add-https-access) covers domains, published
+ports, certificates, and switching from private setup. Native Rails operators
+can continue setting the two lower-level Rails variables directly.
+
 ## Environment files
 
 | File | Purpose |
@@ -146,8 +165,9 @@ The standard Docker deployment uses `SECRET_KEY_BASE`; it does **not** require t
 | `PLEX_ADMIN_PORT` | `3010` | Published host port |
 | `PLEX_HOST` | `localhost` | Browser-facing application hostname, without scheme or port |
 | `PLEX_HOSTS` | `localhost` | Comma-separated allowed application hostnames |
-| `PLEX_ASSUME_SSL` | `false` for localhost HTTP | Set `true` when a trusted reverse proxy terminates HTTPS |
-| `PLEX_FORCE_SSL` | `false` for localhost HTTP | Enable only with a working HTTPS setup and compatible health checks |
+| `GIGAADMIN_SSL_MODE` | `proxy` | Docker HTTPS handling: `proxy`, `letsencrypt`, or explicit private `local` mode |
+| `PLEX_ASSUME_SSL` | Native Rails default `true` | Lower-level Rails setting; Docker's SSL mode controls it |
+| `PLEX_FORCE_SSL` | Native Rails default `true` | Lower-level Rails setting; Docker's SSL mode controls it |
 | `TZ` | `Etc/UTC` | Container system timezone used by the daily scheduler, such as `Europe/London` |
 | `PLEX_DAILY_REFRESH_AT` | `04:15` | Daily refresh time in the container's `TZ`, in `HH:MM` format |
 | `PLEX_DAILY_REFRESH_DAYS` | `1` | History window for scheduled refreshes |
@@ -180,5 +200,11 @@ For custom database arrangements, production accepts `PLEX_DATABASE_USERNAME` (d
 ## Keep administrative data private
 
 Keep actual `.env*` files private and out of version control; the checked-in `.example` files contain placeholders only. Restrict file permissions, keep a protected copy of production secrets, and redact logs before sharing them. Avoid commands that print the full environment or expanded Compose configuration.
+
+The Docker image disables Thruster's duplicate request log because it includes
+unfiltered query strings, which can contain administrator invitation tokens.
+Rails request logging remains enabled and filters token/password parameters.
+Keep `THRUSTER_LOG_REQUESTS=false` and configure upstream proxy logs to omit
+query strings as shown in the deployment guide.
 
 The database contains user emails, administrative notes, access-change records, and playback history. Current-session samples can also contain device names, IP addresses, and session identifiers. Treat database backups and CSV exports as sensitive. Use HTTPS for access beyond localhost, and grant administrator access only to people trusted to change Plex sharing.
