@@ -19,7 +19,8 @@ export default class extends Controller {
     this.dialogTarget.showModal()
   }
 
-  cancel() {
+  cancel(event) {
+    event?.preventDefault()
     this.pendingForm = null
     this.dialogTarget.close()
   }

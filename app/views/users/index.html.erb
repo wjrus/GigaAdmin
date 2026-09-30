@@ -111,11 +111,8 @@
             <tr class="user-row-link"
               data-controller="row-link"
               data-row-link-url-value="<%= user_path(user.id) %>"
-              data-action="click->row-link#open keydown->row-link#openWithKeyboard"
-              tabindex="0"
-              role="link"
-              aria-label="Open <%= user.label %>">
-              <td class="px-4 py-3 font-medium text-white"><%= user.label %></td>
+              data-action="click->row-link#open">
+              <td class="px-4 py-3 font-medium text-white"><%= link_to user.label, user_path(user.id), class: "hover:underline", data: { turbo_prefetch: false } %></td>
               <td class="px-4 py-3 text-zinc-300"><%= user.email.presence || "unknown" %></td>
               <td class="px-4 py-3">
                 <% if suppressed_user?(user) %>

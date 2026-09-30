@@ -164,11 +164,13 @@ module Plex
         http.request(request)
       end
 
-      return response.body if response.is_a?(Net::HTTPSuccess)
+      return response.body.to_s if response.is_a?(Net::HTTPSuccess)
 
       raise Error, "Plex API returned #{response.code} for #{path}"
-    rescue SocketError, Timeout::Error, Errno::ECONNREFUSED, Errno::ETIMEDOUT, OpenSSL::SSL::SSLError => error
-      raise Error, "Could not reach Plex API: #{error.message}"
+    rescue SocketError, Timeout::Error, SystemCallError, EOFError, IOError, Net::HTTPBadResponse, OpenSSL::SSL::SSLError
+      # Transport exception messages can contain request or response fragments.
+      # Expose a stable, safe error through the same boundary as HTTP failures.
+      raise Error, "Could not reach Plex API", cause: nil
     end
 
     def request_class(method)
@@ -188,19 +190,19 @@ module Plex
       if body.lstrip.start_with?("{")
         json_media_container(JSON.parse(body))
       else
-        xml_media_container(REXML::Document.new(body))
+        xml_media_container(xml_document(body))
       end
     rescue JSON::ParserError, REXML::ParseException
       raise Error, "Plex API returned an unreadable response", cause: nil
     end
 
     def json_media_container(payload)
-      container = payload.fetch("MediaContainer", payload)
+      container = json_container(payload)
       {
-        users: Array.wrap(container["User"]).map { |user| normalize_user_hash(user) },
-        servers: Array.wrap(container["Server"]).map { |server| normalize_hash(server) },
-        invites: Array.wrap(container["Invite"]).map { |invite| normalize_invite_hash(invite) },
-        metadata: Array.wrap(container["Metadata"]).map { |metadata| normalize_metadata_hash(metadata) }
+        users: json_collection(container, "User").map { |user| normalize_user_hash(user) },
+        servers: json_collection(container, "Server").map { |server| normalize_hash(server) },
+        invites: json_collection(container, "Invite").map { |invite| normalize_invite_hash(invite) },
+        metadata: json_collection(container, "Metadata").map { |metadata| normalize_metadata_hash(metadata) }
       }
     end
 
@@ -214,10 +216,12 @@ module Plex
     end
 
     def server_document(body)
-      document = REXML::Document.new(body)
+      document = xml_document(body, roots: %w[MediaContainer Server])
       server = elements(document, "//Server").first
+      raise Error, "Plex server response did not identify a server" unless server
+
       {
-        server: server ? attributes(server) : {},
+        server: attributes(server),
         sections: elements(document, "//Section").map { |section| attributes(section) }
       }
     rescue REXML::ParseException
@@ -225,7 +229,7 @@ module Plex
     end
 
     def shared_server_document(body)
-      document = REXML::Document.new(body)
+      document = xml_document(body)
       elements(document, "//SharedServer").map do |shared_server|
         attributes(shared_server).merge(
           user: attributes(elements(shared_server, "User").first),
@@ -240,30 +244,62 @@ module Plex
       if body.lstrip.start_with?("{")
         json_session_document(JSON.parse(body))
       else
-        xml_session_document(REXML::Document.new(body))
+        xml_session_document(xml_document(body))
       end
     rescue JSON::ParserError, REXML::ParseException
       raise Error, "Plex sessions response was unreadable", cause: nil
     end
 
     def json_session_document(payload)
-      container = payload.fetch("MediaContainer", payload)
-      Array.wrap(container["Metadata"]).map do |metadata|
-        normalize_hash(metadata).merge(
-          user: normalize_hash(metadata["User"] || {}),
-          player: normalize_hash(metadata["Player"] || {}),
-          session: normalize_hash(metadata["Session"] || {})
-        )
+      container = json_container(payload)
+      json_collection(container, "Metadata").map do |metadata|
+        session_metadata(normalize_metadata_hash(metadata))
       end
     end
 
     def xml_session_document(document)
       elements(document, "//Video|//Track").map do |metadata|
-        attributes(metadata).merge(
-          user: attributes(elements(metadata, "User").first),
-          player: attributes(elements(metadata, "Player").first),
-          session: attributes(elements(metadata, "Session").first)
-        )
+        session_metadata(metadata_attributes(metadata))
+      end
+    end
+
+    def session_metadata(metadata)
+      %i[user player session].each do |key|
+        metadata[key] = {} if metadata[key].nil?
+        raise Error, "Plex sessions response contained invalid session details" unless metadata[key].is_a?(Hash)
+      end
+      if metadata[:transcode_session] && !metadata[:transcode_session].is_a?(Hash)
+        raise Error, "Plex sessions response contained invalid transcode details"
+      end
+      json_collection(metadata, :media).each do |media|
+        json_collection(media, :part).each { |part| json_collection(part, :stream) }
+      end
+      metadata
+    end
+
+    def xml_document(body, roots: [ "MediaContainer" ])
+      REXML::Document.new(body).tap do |document|
+        unless roots.include?(document.root&.name)
+          raise Error, "Plex API returned an unexpected response"
+        end
+      end
+    end
+
+    def json_container(payload)
+      container = payload.is_a?(Hash) ? payload.fetch("MediaContainer", payload) : nil
+      raise Error, "Plex API returned an unexpected response" unless container.is_a?(Hash)
+      unless payload.key?("MediaContainer") || (container.keys & %w[User Server Invite Metadata size]).any?
+        raise Error, "Plex API returned an unexpected response"
+      end
+
+      container
+    end
+
+    def json_collection(container, key)
+      Array.wrap(container[key]).tap do |collection|
+        unless collection.all? { |item| item.is_a?(Hash) }
+          raise Error, "Plex API returned an unexpected response"
+        end
       end
     end
 
@@ -289,7 +325,7 @@ module Plex
 
     def normalize_user_hash(hash)
       normalized = normalize_hash(hash)
-      normalized[:servers] = Array.wrap(hash["Server"]).map { |server| normalize_hash(server) }
+      normalized[:servers] = json_collection(hash, "Server").map { |server| normalize_hash(server) }
       normalized
     end
 
@@ -330,7 +366,7 @@ module Plex
 
     def normalize_invite_hash(hash)
       normalized = normalize_hash(hash)
-      normalized[:servers] = Array.wrap(hash["Server"]).map { |server| normalize_hash(server) }
+      normalized[:servers] = json_collection(hash, "Server").map { |server| normalize_hash(server) }
       normalized
     end
 

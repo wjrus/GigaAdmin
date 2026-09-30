@@ -98,7 +98,11 @@ class SharesController < ApplicationController
   end
 
   def bulk_update
-    user_ids = Array(params[:user_ids]).compact_blank
+    user_ids = params[:user_ids] || []
+    unless user_ids.is_a?(Array) && user_ids.all? { |id| id.is_a?(String) }
+      raise Plex::ConfigurationError, "Invalid user selection. Reload before saving."
+    end
+    user_ids = user_ids.compact_blank.uniq
     library_id = params[:library_id].to_s
     operation = params[:operation].to_s
     raise Plex::ConfigurationError, "Select at least one user." if user_ids.empty?
@@ -197,10 +201,17 @@ class SharesController < ApplicationController
     snapshot = ShareSnapshot.latest_for(required_machine_identifier)
     return refresh_snapshot(include_history: false) unless snapshot
 
+    update_cached_shares(snapshot, share_id.to_s => library_ids)
+  end
+
+  def update_cached_shares(snapshot, changes)
     libraries_by_id = snapshot.libraries.index_by { |library| library["id"].to_s }
-    selected_libraries = library_ids.filter_map { |library_id| libraries_by_id[library_id.to_s] }
+    libraries_by_share_id = changes.transform_values do |library_ids|
+      library_ids.map { |library_id| libraries_by_id.fetch(library_id.to_s) }
+    end
     users = snapshot.users.filter_map do |user|
-      next user unless user["share_id"].to_s == share_id.to_s
+      selected_libraries = libraries_by_share_id[user["share_id"].to_s]
+      next user unless selected_libraries
       next if selected_libraries.empty?
 
       user.merge(
@@ -354,9 +365,11 @@ class SharesController < ApplicationController
 
   def apply_bulk_library_update(snapshot, user_ids, library, operation)
     client = Plex::Client.from_env
-    changed_count = 0
+    selected_user_ids = user_ids.to_set
+    changes = {}
 
-    snapshot.users.select { |user| user_ids.include?(user["id"].to_s) }.each do |user|
+    snapshot.users.each do |user|
+      next unless selected_user_ids.include?(user["id"].to_s)
       next if user["pending"] || user["share_id"].blank?
 
       previous_libraries = current_user_libraries(user)
@@ -368,12 +381,15 @@ class SharesController < ApplicationController
       else
         client.remove_shared_server(required_machine_identifier, user["share_id"])
       end
+      changes[user["share_id"].to_s] = selected_libraries.map { |selected| selected["id"].to_s }
       record_share_update(user["share_id"], user, previous_libraries, selected_libraries)
-      update_cached_share(user["share_id"], selected_libraries.map { |selected| selected["id"].to_s })
-      changed_count += 1
     end
 
-    changed_count
+    changes.size
+  ensure
+    # Plex updates are not transactional. Preserve completed changes even if a
+    # later request fails, without copying the entire snapshot for every user.
+    update_cached_shares(snapshot, changes) if changes&.any?
   end
 
   def bulk_selected_libraries(previous_libraries, library, operation)

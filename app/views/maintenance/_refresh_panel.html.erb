@@ -1,6 +1,7 @@
 <div class="rounded-lg border border-zinc-800 bg-zinc-950 p-5"
   <% if @active_refresh_run.present? %>
     data-controller="auto-refresh"
+    data-auto-refresh-replace-value="true"
     data-auto-refresh-url-value="<%= maintenance_refresh_path %>"
     data-auto-refresh-interval-value="5000"
   <% end %>>

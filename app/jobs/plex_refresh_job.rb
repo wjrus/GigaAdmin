@@ -3,6 +3,8 @@ class PlexRefreshJob < ApplicationJob
 
   def perform(refresh_run_id)
     refresh_run = RefreshRun.find(refresh_run_id)
+    return if refresh_run.status == "completed"
+
     refresh_run.update!(
       status: "running",
       started_at: Time.current,

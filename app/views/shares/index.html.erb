@@ -119,21 +119,18 @@
               <tr class="user-row-link align-top"
                 data-controller="row-link"
                 data-row-link-url-value="<%= user_path(user.id) %>"
-                data-action="click->row-link#open keydown->row-link#openWithKeyboard"
-                tabindex="0"
-                role="link"
-                aria-label="Open <%= user.label %>">
+                data-action="click->row-link#open">
                 <td class="min-w-72 px-4 py-4">
                   <div class="flex items-center gap-3">
                     <% if user.thumb.present? %>
-                      <img src="<%= user.thumb %>" alt="" class="size-10 rounded-md bg-zinc-800 object-cover">
+                      <img src="<%= user.thumb %>" alt="" loading="lazy" decoding="async" class="size-10 rounded-md bg-zinc-800 object-cover">
                     <% else %>
                       <div class="flex size-10 items-center justify-center rounded-md bg-zinc-800 text-sm font-semibold text-zinc-300">
                         <%= user.label.first.to_s.upcase %>
                       </div>
                     <% end %>
                     <div class="min-w-0">
-                      <p class="font-semibold text-white"><%= user.label %></p>
+                      <p class="font-semibold text-white"><%= link_to user.label, user_path(user.id), class: "hover:underline", data: { turbo_prefetch: false } %></p>
                       <p class="truncate text-xs text-zinc-500"><%= user.email.presence || user.username %></p>
                     </div>
                   </div>

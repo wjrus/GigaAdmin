@@ -79,6 +79,27 @@ class PlexStreamEventTest < ActiveSupport::TestCase
     assert_equal "Feature Updated", PlexStreamEvent.find_by!(machine_identifier: "machine-one", account_id: "42").title
   end
 
+  test "overlapping imports do not rewrite unchanged history but still update changed metadata" do
+    stream = { account_id: "42", rating_key: "unchanged", viewed_at: Time.current.to_i,
+      title: "Feature", player: { platform: "tvOS" } }
+    PlexStreamEvent.upsert_streams!("history-overlap", [ stream ])
+    event = PlexStreamEvent.find_by!(machine_identifier: "history-overlap")
+    original_updated_at = event.updated_at
+    original_tuple = PlexStreamEvent.where(id: event.id).pick(Arel.sql("ctid::text"))
+
+    travel 1.hour do
+      assert_equal 0, PlexStreamEvent.upsert_streams!("history-overlap", [ stream ])
+      assert_equal original_updated_at, event.reload.updated_at
+      assert_equal original_tuple, PlexStreamEvent.where(id: event.id).pick(Arel.sql("ctid::text")),
+        "An unchanged import should not create a new PostgreSQL row version"
+
+      assert_equal 0, PlexStreamEvent.upsert_streams!("history-overlap", [ stream.merge(player: { platform: "Roku" }) ])
+      assert_equal "Roku", event.reload.player_platform
+      assert_operator event.updated_at, :>, original_updated_at
+      assert_equal "Roku", event.metadata.dig("player", "platform")
+    end
+  end
+
   test "normalizes numeric rating keys before deduplicating existing streams" do
     stream = { account_id: "42", rating_key: "123", viewed_at: Time.current.to_i, title: "Feature" }
     PlexStreamEvent.upsert_streams!("machine-one", [ stream ])
@@ -109,6 +130,20 @@ class PlexStreamEventTest < ActiveSupport::TestCase
     latest = PlexStreamEvent.for_machine("latest-test").recent.latest_per_account
     assert_equal [ [ "42", newest.title ], [ "43", other.title ] ], latest.map { |event| [ event.account_id, event.title ] }
     assert_equal [ newest.title ], PlexStreamEvent.latest_for_accounts("latest-test", [ older.account_id ]).map(&:title)
+  end
+
+  test "latest account lookups handle missing accounts duplicates and quoted identifiers" do
+    attrs = { machine_identifier: "latest'lookups", account_id: "user'one", viewed_at: Time.current }
+    PlexStreamEvent.create!(attrs.merge(rating_key: "old", title: "Old", viewed_at: 1.day.ago))
+    PlexStreamEvent.create!(attrs.merge(rating_key: "tie", title: "Earlier ID"))
+    newest = PlexStreamEvent.create!(attrs.merge(rating_key: "new", title: "Latest ID"))
+    other = PlexStreamEvent.create!(attrs.merge(account_id: "user-two", title: "Second user"))
+    PlexStreamEvent.create!(attrs.merge(account_id: "not-requested", title: "Excluded account"))
+    PlexStreamEvent.create!(attrs.merge(machine_identifier: "other-machine", title: "Excluded machine", viewed_at: 1.hour.from_now))
+
+    latest = PlexStreamEvent.latest_for_accounts(attrs[:machine_identifier], [ "missing", newest.account_id, newest.account_id, other.account_id ])
+    assert_equal({ newest.account_id => newest.title, other.account_id => other.title }, latest.to_h { |event| [ event.account_id, event.title ] })
+    assert_empty PlexStreamEvent.latest_for_accounts(attrs[:machine_identifier], [])
   end
 
   test "completed play scope counts one completion per user title and day" do

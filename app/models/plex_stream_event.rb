@@ -62,7 +62,23 @@ class PlexStreamEvent < ApplicationRecord
   end
 
   def self.latest_for_accounts(machine_identifier, account_ids)
-    for_machine(machine_identifier).where(account_id: account_ids).latest_per_account
+    account_ids = account_ids.map(&:to_s).uniq
+    return none if account_ids.empty?
+
+    # One backward index lookup per account avoids sorting its entire playback
+    # history just to display the latest event during a share refresh.
+    latest_ids = sanitize_sql_array([ <<~SQL, account_ids, machine_identifier ])
+      SELECT latest.id
+      FROM unnest(ARRAY[?]::text[]) AS accounts(account_id)
+      CROSS JOIN LATERAL (
+        SELECT id FROM plex_stream_events
+        WHERE machine_identifier = ? AND account_id = accounts.account_id
+        ORDER BY viewed_at DESC, id DESC LIMIT 1
+      ) AS latest
+    SQL
+    where("plex_stream_events.id IN (#{latest_ids})")
+      .select(:account_id, :viewed_at, :title, :full_title, :media_type)
+      .reorder(:account_id)
   end
 
   def self.upsert_streams!(machine_identifier, streams)
@@ -110,11 +126,43 @@ class PlexStreamEvent < ApplicationRecord
       existing = rows.reject { |row| inserted_keys.include?([ row[:account_id], row[:rating_key], row[:viewed_at] ]) }
       if existing.any?
         upsert_all(existing, unique_by: :index_stream_events_on_machine_account_viewed_rating,
-          update_only: existing.first.keys.map(&:to_s) - [ "created_at" ], record_timestamps: false)
+          on_duplicate: history_update_sql, record_timestamps: false)
       end
       inserted.rows.size
     end
   end
+
+  def self.history_update_sql
+    # Refreshes deliberately overlap earlier imports. Avoid rewriting unchanged
+    # JSON metadata (and generating WAL/dead tuples) for every event in that window.
+    # Conflict identity and the original creation time are deliberately immutable.
+    Arel.sql(<<~SQL.squish)
+      media_type = excluded.media_type,
+      title = excluded.title,
+      full_title = excluded.full_title,
+      cover_path = excluded.cover_path,
+      library_title = excluded.library_title,
+      player_title = excluded.player_title,
+      player_platform = excluded.player_platform,
+      ip_address = excluded.ip_address,
+      duration = excluded.duration,
+      view_offset = excluded.view_offset,
+      metadata = excluded.metadata,
+      updated_at = excluded.updated_at
+      WHERE (
+        plex_stream_events.media_type, plex_stream_events.title, plex_stream_events.full_title,
+        plex_stream_events.cover_path, plex_stream_events.library_title, plex_stream_events.player_title,
+        plex_stream_events.player_platform, plex_stream_events.ip_address, plex_stream_events.duration,
+        plex_stream_events.view_offset, plex_stream_events.metadata
+      ) IS DISTINCT FROM (
+        excluded.media_type, excluded.title, excluded.full_title,
+        excluded.cover_path, excluded.library_title, excluded.player_title,
+        excluded.player_platform, excluded.ip_address, excluded.duration,
+        excluded.view_offset, excluded.metadata
+      )
+    SQL
+  end
+  private_class_method :history_update_sql
 
   def label
     full_title.presence || title.presence || "Unknown title"
@@ -155,7 +203,7 @@ class PlexStreamEvent < ApplicationRecord
   end
 
   def self.stream_title(stream)
-    [ stream[:grandparent_title], stream[:parent_title], stream[:title] ].compact_blank.join(" - ")
+    Plex::StreamFormatter.title(stream)
   end
 
   def self.stream_identifier(stream)

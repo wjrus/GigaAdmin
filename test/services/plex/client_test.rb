@@ -48,6 +48,37 @@ module Plex
       assert_equal "/media/feature.mkv", history.dig(:media, :part, :file)
     end
 
+    test "session parsing retains normalized nested playback decisions and bandwidth in XML and JSON" do
+      xml = <<~XML
+        <MediaContainer>
+          <Video title="Feature">
+            <Session id="session-one" bandwidth="12000" location="wan" />
+            <TranscodeSession videoDecision="transcode" audioDecision="copy" />
+            <Media videoDecision="transcode" audioDecision="copy">
+              <Part decision="transcode"><Stream streamType="1" decision="transcode" /></Part>
+            </Media>
+          </Video>
+        </MediaContainer>
+      XML
+      json = JSON.generate("MediaContainer" => { "Metadata" => [ {
+        "title" => "Feature", "Session" => { "id" => "session-one", "bandwidth" => "12000", "location" => "wan" },
+        "TranscodeSession" => { "videoDecision" => "transcode", "audioDecision" => "copy" },
+        "Media" => { "videoDecision" => "transcode", "audioDecision" => "copy",
+          "Part" => { "decision" => "transcode", "Stream" => { "streamType" => "1", "decision" => "transcode" } } }
+      } ] })
+      client = Client.new(token: "token")
+
+      [ xml, json ].each do |body|
+        session = client.send(:session_document, body).first
+        assert_equal "12000", session.dig(:session, :bandwidth)
+        assert_equal "wan", session.dig(:session, :location)
+        assert_equal "transcode", session.dig(:transcode_session, :video_decision)
+        assert_equal "transcode", session.dig(:media, :part, :stream, :decision)
+        assert_equal({}, session[:user])
+        assert_equal({}, session[:player])
+      end
+    end
+
     test "parses json metadata with nested details" do
       payload = {
         "MediaContainer" => {
@@ -153,6 +184,61 @@ module Plex
         error = assert_raises(Client::Error) { client.send(parser, malformed_json) }
         assert_not_includes error.message, "private@example.com"
         assert_nil error.cause
+      end
+    end
+
+    test "empty or unexpected XML cannot masquerade as a successful empty Plex result" do
+      client = Client.new(token: "token")
+
+      [ "", "<html><body>Login required</body></html>", "<Error message='private@example.com' />" ].each do |body|
+        %i[media_container session_document server_document shared_server_document].each do |parser|
+          error = assert_raises(Client::Error) { client.send(parser, body) }
+          assert_not_includes error.message, "private@example.com"
+        end
+      end
+      assert_raises(Client::Error) { client.send(:server_document, "<MediaContainer />") }
+      assert_empty client.send(:shared_server_document, "<MediaContainer />")
+      assert_empty client.send(:session_document, "<MediaContainer />")
+    end
+
+    test "invalid JSON response shapes are handled as safe API errors" do
+      client = Client.new(token: "token")
+      [ { "error" => "private@example.com" }, { "MediaContainer" => nil }, { "MediaContainer" => "private@example.com" },
+        { "MediaContainer" => { "Metadata" => [ "private@example.com" ] } } ].each do |payload|
+        %i[media_container session_document].each do |parser|
+          error = assert_raises(Client::Error) { client.send(parser, JSON.generate(payload)) }
+          assert_not_includes error.message, "private@example.com"
+        end
+      end
+      payload = JSON.generate("MediaContainer" => { "Metadata" => { "Player" => [ { "title" => "Viewer" } ] } })
+      assert_raises(Client::Error) { client.send(:session_document, payload) }
+    end
+
+    test "invalid nested session structures cannot be recorded as successful activity" do
+      client = Client.new(token: "token")
+      [ { "TranscodeSession" => [ {} ] }, { "Media" => "invalid" },
+        { "Media" => { "Part" => "invalid" } }, { "Media" => { "Part" => { "Stream" => "invalid" } } } ].each do |metadata|
+        payload = JSON.generate("MediaContainer" => { "Metadata" => metadata })
+        assert_raises(Client::Error) { client.send(:session_document, payload) }
+      end
+      payload = JSON.generate("MediaContainer" => { "Metadata" => { "User" => nil, "Player" => nil, "Session" => nil } })
+      session = client.send(:session_document, payload).first
+      assert_equal({}, session[:player])
+      assert_equal({}, session[:session])
+      assert_equal({}, session[:user])
+    end
+
+    test "connection resets and incomplete responses use a safe API error boundary" do
+      client = Client.new(token: "synthetic-secret")
+      [ Errno::ECONNRESET, Errno::EHOSTUNREACH, EOFError, IOError, Net::HTTPBadResponse ].each do |failure|
+        http = Object.new
+        http.define_singleton_method(:request) { |_request| raise failure, "synthetic-secret private@example.com" }
+
+        with_http(http) do
+          error = assert_raises(Client::Error) { client.users }
+          assert_equal "Could not reach Plex API", error.message
+          assert_nil error.cause
+        end
       end
     end
 

@@ -13,7 +13,7 @@ class AdminInvitationsController < ApplicationController
       return
     end
 
-    @invitation, token = AdminInvitation.issue!(email: params.require(:admin_invitation).permit(:email)[:email], invited_by: current_local_admin)
+    @invitation, token = AdminInvitation.issue!(email: params.expect(admin_invitation: [ :email ])[:email], invited_by: current_local_admin)
     @invitation_url = accept_admin_invitation_url(token: token)
     render :created, status: :created
   rescue ActiveRecord::RecordInvalid => error
@@ -36,7 +36,7 @@ class AdminInvitationsController < ApplicationController
   def accept
     return unless load_invitation
 
-    credentials = params.require(:admin_user).permit(:password, :password_confirmation)
+    credentials = params.expect(admin_user: [ :password, :password_confirmation ])
     admin = @invitation.accept!(password: credentials[:password], password_confirmation: credentials[:password_confirmation])
     start_local_session(admin)
     redirect_to root_path, notice: "Your administrator account is ready.", status: :see_other

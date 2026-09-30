@@ -3,7 +3,7 @@
 <% alert_kind = kind.to_s == "alert" %>
 
 <div data-controller="flash"
-     data-flash-duration-value="5000"
+     data-flash-duration-value="<%= alert_kind ? 0 : 5000 %>"
      class="overflow-hidden rounded-lg border text-sm shadow-2xl shadow-black/30 transition duration-150 <%= alert_kind ? "border-red-500/40 bg-red-950 text-red-100" : "border-emerald-500/40 bg-emerald-950 text-emerald-100" %>"
      role="<%= alert_kind ? "alert" : "status" %>">
   <div class="flex items-start gap-3 px-4 py-3">
@@ -15,7 +15,9 @@
       &times;
     </button>
   </div>
-  <div class="flash-progress">
-    <div data-flash-target="bar" class="flash-progress__bar <%= alert_kind ? "flash-progress__bar--alert" : "flash-progress__bar--notice" %>"></div>
-  </div>
+  <% unless alert_kind %>
+    <div class="flash-progress" aria-hidden="true">
+      <div data-flash-target="bar" class="flash-progress__bar flash-progress__bar--notice"></div>
+    </div>
+  <% end %>
 </div>

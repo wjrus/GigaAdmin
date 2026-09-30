@@ -1,5 +1,5 @@
 module CsvSafety
-  FORMULA_PREFIX = /\A[=+\-@\t\r]/.freeze
+  FORMULA_PREFIX = /\A[=+\-@\t\r\n＝＋－＠]/.freeze
 
   def self.cell(value)
     return value unless value.is_a?(String)

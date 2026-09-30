@@ -4,15 +4,8 @@ export default class extends Controller {
   static values = { url: String }
 
   open(event) {
-    if (event.defaultPrevented || this.interactiveElement(event.target)) return
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || this.interactiveElement(event.target)) return
 
-    Turbo.visit(this.urlValue)
-  }
-
-  openWithKeyboard(event) {
-    if (!["Enter", " "].includes(event.key) || event.defaultPrevented || this.interactiveElement(event.target)) return
-
-    event.preventDefault()
     Turbo.visit(this.urlValue)
   }
 

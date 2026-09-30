@@ -5,6 +5,7 @@ class PlexCoversController < ApplicationController
   class InvalidCover < StandardError; end
   Cover = Data.define(:body, :content_type)
   MAX_COVER_BYTES = 10.megabytes
+  COVER_CONTENT_TYPES = %w[image/jpeg image/png image/gif image/webp image/avif image/apng image/bmp image/x-ms-bmp image/x-icon image/vnd.microsoft.icon].freeze
   METADATA_IMAGE_PATH = %r{\A/library/metadata/\d+/(?:thumb|art|banner)(?:/\d+)?\z}
 
   def show
@@ -14,7 +15,7 @@ class PlexCoversController < ApplicationController
     send_data cover.body, type: cover.content_type, disposition: "inline"
   rescue InvalidCover, Plex::ConfigurationError, URI::InvalidURIError
     head :not_found
-  rescue SocketError, Timeout::Error, Errno::ECONNREFUSED, Errno::ETIMEDOUT, OpenSSL::SSL::SSLError
+  rescue SocketError, Timeout::Error, IOError, SystemCallError, OpenSSL::SSL::SSLError, Net::HTTPBadResponse
     head :bad_gateway
   end
 
@@ -64,8 +65,11 @@ class PlexCoversController < ApplicationController
     return false unless response.is_a?(Net::HTTPSuccess)
     return false if response["Content-Length"].to_i > MAX_COVER_BYTES
 
-    content_type = response["Content-Type"].to_s.split(";", 2).first.downcase
-    content_type.start_with?("image/") && content_type != "image/svg+xml"
+    COVER_CONTENT_TYPES.include?(cover_content_type(response))
+  end
+
+  def cover_content_type(response)
+    response["Content-Type"].to_s.split(";", 2).first.to_s.strip.downcase
   end
 
   def fetch_cover(uri)
@@ -78,7 +82,7 @@ class PlexCoversController < ApplicationController
       write_timeout: 10
     ) do |http|
       request = Net::HTTP::Get.new(uri)
-      request["Accept"] = "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
+      request["Accept"] = COVER_CONTENT_TYPES.join(",")
       http.request(request) do |response|
         raise InvalidCover unless valid_cover_headers?(response)
 
@@ -88,7 +92,7 @@ class PlexCoversController < ApplicationController
 
           body << chunk
         end
-        return Cover.new(body: body, content_type: response["Content-Type"])
+        return Cover.new(body: body, content_type: cover_content_type(response))
       end
     end
   end

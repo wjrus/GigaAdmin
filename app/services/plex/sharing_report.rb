@@ -39,6 +39,17 @@ module Plex
       @include_history = include_history
     end
 
+    def self.invite_server_matches?(candidate, server, machine_identifier:)
+      machine_ids = [ candidate[:machine_identifier], candidate[:client_identifier] ].compact_blank.map(&:to_s)
+      return machine_ids.include?(machine_identifier) if machine_ids.any?
+
+      if candidate[:id].present? && server[:id].present?
+        return candidate[:id].to_s == server[:id].to_s
+      end
+
+      candidate[:name].present? && server[:name].present? && candidate[:name].to_s == server[:name].to_s
+    end
+
     def call
       raise ConfigurationError, "Missing PLEX_MACHINE_IDENTIFIER" unless machine_identifier
 
@@ -175,14 +186,7 @@ module Plex
     end
 
     def invite_server_matches?(candidate, server)
-      machine_ids = [ candidate[:machine_identifier], candidate[:client_identifier] ].compact_blank.map(&:to_s)
-      return machine_ids.include?(machine_identifier) if machine_ids.any?
-
-      if candidate[:id].present? && server[:id].present?
-        return candidate[:id].to_s == server[:id].to_s
-      end
-
-      candidate[:name].present? && server[:name].present? && candidate[:name].to_s == server[:name].to_s
+      self.class.invite_server_matches?(candidate, server, machine_identifier: machine_identifier)
     end
 
     def build_pending_invite(invite, invite_server, library_lookup)
@@ -237,7 +241,7 @@ module Plex
     def stream_title(stream)
       return unless stream
 
-      [ stream[:grandparent_title], stream[:parent_title], stream[:title] ].compact_blank.join(" - ")
+      StreamFormatter.title(stream)
     end
 
 

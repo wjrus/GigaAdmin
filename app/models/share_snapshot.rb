@@ -49,7 +49,7 @@ class ShareSnapshot < ApplicationRecord
       changed = true
       user.merge(
         "last_streamed_at" => stream[:viewed_at],
-        "last_streamed_title" => stream_title(stream),
+        "last_streamed_title" => Plex::StreamFormatter.title(stream),
         "last_streamed_type" => stream[:type]
       )
     end
@@ -75,10 +75,6 @@ class ShareSnapshot < ApplicationRecord
   end
 
   private
-
-  def self.stream_title(stream)
-    [ stream[:grandparent_title], stream[:parent_title], stream[:title] ].compact_blank.join(" - ")
-  end
 
   def snapshot_user(user)
     attributes = user.symbolize_keys

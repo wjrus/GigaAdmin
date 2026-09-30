@@ -124,3 +124,33 @@ test("hidden tabs stop polling and resume with one timer when visible", async ()
   assert.equal(timers.size, 1)
   controller.disconnect()
 })
+
+test("whole-panel responses replace the controller root and stop its old polling loop", async () => {
+  const html = '<div data-controller="auto-refresh">running</div>'
+  const { controller, timers } = await setup(async () => response(html))
+  controller.replaceValue = true
+
+  await controller.refresh()
+
+  assert.equal(controller.element.outerHTML, html)
+  assert.equal(controller.element.innerHTML, "original")
+  assert.equal(controller.active, false)
+  assert.equal(controller.request, null)
+  assert.equal(timers.size, 0)
+  controller.disconnect()
+})
+
+test("a completed whole-panel response leaves no old timer that can continue polling", async () => {
+  const html = "<div>completed</div>"
+  let calls = 0
+  const { controller, timers } = await setup(async () => { calls++; return response(html) })
+  controller.replaceValue = true
+
+  await controller.refresh()
+  await controller.refresh()
+
+  assert.equal(controller.element.outerHTML, html)
+  assert.equal(calls, 1)
+  assert.equal(timers.size, 0)
+  controller.disconnect()
+})

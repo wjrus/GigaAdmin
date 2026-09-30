@@ -37,4 +37,15 @@ class SessionsControllerTest < ActionDispatch::IntegrationTest
     end
     assert_redirected_to sign_in_path
   end
+
+  test "the obsolete singular ADMIN_USER setting cannot grant Google access" do
+    ENV["ADMIN_USERS"] = ""
+    ENV["ADMIN_USER"] = "admin@example.com"
+
+    post "/auth/google_oauth2/callback", env: { "omniauth.auth" => OmniAuth.config.mock_auth[:google_oauth2] }
+
+    assert_redirected_to sign_in_path
+    get users_path
+    assert_redirected_to sign_in_path
+  end
 end

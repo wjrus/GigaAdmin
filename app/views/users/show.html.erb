@@ -261,10 +261,10 @@
         <% end %>
       </aside>
 
-      <dialog data-confirmation-target="dialog" class="confirmation-dialog w-[calc(100%-2rem)] max-w-md rounded-lg border border-zinc-700 bg-zinc-950 p-0 text-zinc-100 shadow-2xl">
+      <dialog data-confirmation-target="dialog" data-action="cancel->confirmation#cancel" aria-labelledby="confirmation-title" aria-describedby="confirmation-body" class="confirmation-dialog w-[calc(100%-2rem)] max-w-md rounded-lg border border-zinc-700 bg-zinc-950 p-0 text-zinc-100 shadow-2xl">
         <div class="p-5">
-          <h2 data-confirmation-target="title" class="text-lg font-semibold text-white">Confirm action</h2>
-          <p data-confirmation-target="body" class="mt-2 text-sm leading-6 text-zinc-400">This action cannot be undone.</p>
+          <h2 id="confirmation-title" data-confirmation-target="title" class="text-lg font-semibold text-white">Confirm action</h2>
+          <p id="confirmation-body" data-confirmation-target="body" class="mt-2 text-sm leading-6 text-zinc-400">This action cannot be undone.</p>
           <div class="mt-5 flex justify-end gap-2">
             <button type="button" data-action="confirmation#cancel" class="inline-flex items-center justify-center rounded-md border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:ring-offset-2 focus:ring-offset-zinc-950">Cancel</button>
             <button type="button" data-confirmation-target="confirmButton" data-action="confirmation#submit" class="inline-flex items-center justify-center rounded-md bg-red-300 px-4 py-2 text-sm font-semibold text-red-950 transition hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-300 focus:ring-offset-2 focus:ring-offset-zinc-950">Confirm</button>
@@ -367,13 +367,12 @@
 
     <%= render "stream_history" %>
 
+    <% if @now_playing_samples.any? %>
     <section class="overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950">
       <div class="border-b border-zinc-800 p-5">
-        <h2 class="text-lg font-semibold text-white">Recent Live Sessions</h2>
+        <h2 class="text-lg font-semibold text-white">Legacy session samples</h2>
+        <p class="mt-1 text-sm text-zinc-400">Previously collected per-user session details. New activity collection stores server totals only.</p>
       </div>
-      <% if @now_playing_samples.empty? %>
-        <p class="p-5 text-sm text-zinc-400">No sampled live sessions for this user yet.</p>
-      <% else %>
         <div class="overflow-x-auto">
           <table class="min-w-full divide-y divide-zinc-800 text-left text-sm">
             <thead class="bg-zinc-900/80 text-xs uppercase tracking-wide text-zinc-400">
@@ -400,8 +399,8 @@
             </tbody>
           </table>
         </div>
-      <% end %>
     </section>
+    <% end %>
 
     <section class="overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950">
       <div class="border-b border-zinc-800 p-5">

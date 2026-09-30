@@ -3,6 +3,7 @@ class LibrariesController < ApplicationController
     @machine_identifier = required_machine_identifier
     @library_title = params[:library_title].to_s
     @snapshot = ShareSnapshot.latest_for(@machine_identifier)
+    @report = @snapshot&.to_report
     @library = library_from_snapshot
     @shared_users = shared_users
     @events = completed_event_scope
@@ -23,11 +24,11 @@ class LibrariesController < ApplicationController
   private
 
   def library_from_snapshot
-    (@snapshot&.to_report&.libraries || []).find { |library| library.title.to_s == @library_title }
+    (@report&.libraries || []).find { |library| library.title.to_s == @library_title }
   end
 
   def shared_users
-    (@snapshot&.to_report&.users || []).select do |user|
+    (@report&.users || []).select do |user|
       user.libraries.any? { |library| library.title.to_s == @library_title }
     end
   end
@@ -55,7 +56,7 @@ class LibrariesController < ApplicationController
 
   def user_labels
     labels = PlexUserNote.where.not(username: [ nil, "" ]).pluck(:plex_user_id, :username).to_h
-    (@snapshot&.to_report&.users || []).each { |user| labels[user.id.to_s] = user.label }
+    (@report&.users || []).each { |user| labels[user.id.to_s] = user.label }
     labels
   end
 
@@ -67,7 +68,7 @@ class LibrariesController < ApplicationController
   end
 
   def completed_event_scope
-    return PlexStreamEvent.none unless library_from_snapshot
+    return PlexStreamEvent.none unless @library
 
     PlexStreamEvent.completed_video_play_scope(
       event_scope,

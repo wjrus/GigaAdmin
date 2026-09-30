@@ -211,6 +211,35 @@ class NowPlayingControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "cached sessions retain their observation time and are isolated by server" do
+    original_cache = Rails.cache
+    Rails.cache = ActiveSupport::Cache::MemoryStore.new
+    original = Plex::Client.method(:from_env)
+    calls = 0
+    client = Object.new
+    client.define_singleton_method(:playback_sessions) { calls += 1; [] }
+    Plex::Client.define_singleton_method(:from_env) { client }
+    observed = Time.zone.local(2026, 9, 29, 12, 0, 58)
+    travel_to observed
+
+    get now_playing_path
+    assert_response :success
+    travel 4.seconds
+    get now_playing_path
+    assert_response :success
+    assert_equal 1, calls
+    assert_select "p", text: "Checked #{I18n.l(observed, format: :short)}"
+
+    ENV["PLEX_SERVER_BASE_URL"] = "http://another.example.test"
+    get now_playing_path
+    assert_response :success
+    assert_equal 2, calls
+  ensure
+    Rails.cache = original_cache
+    Plex::Client.define_singleton_method(:from_env, original) if original
+    travel_back
+  end
+
   private
 
   def sign_in

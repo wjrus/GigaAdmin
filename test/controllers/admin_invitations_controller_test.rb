@@ -141,6 +141,21 @@ class AdminInvitationsControllerTest < ActionDispatch::IntegrationTest
     assert_nil request.session[:local_admin_id]
   end
 
+  test "malformed invitation and acceptance attributes return bad request" do
+    sign_in
+    assert_no_difference "AdminInvitation.count" do
+      post admin_invitations_path, params: { admin_invitation: "invalid", current_password: "correct-horse-battery-staple" }
+    end
+    assert_response :bad_request
+
+    invitation, token = issue_invitation
+    assert_no_difference "AdminUser.count" do
+      post accept_admin_invitation_path(token: token), params: { admin_user: "invalid" }
+    end
+    assert_response :bad_request
+    assert_nil invitation.reload.accepted_at
+  end
+
   test "an administrator can revoke a pending link" do
     invitation, token = issue_invitation
     sign_in

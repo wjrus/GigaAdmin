@@ -156,6 +156,26 @@ class PlexCoversControllerTest < ActionDispatch::IntegrationTest
     assert_response :not_found
   end
 
+  test "rejects SVG content types with whitespace and other non-raster image types" do
+    [ "image/svg+xml ; charset=utf-8", "image/svg+xml\t", "image/unrecognized" ].each do |content_type|
+      response = Net::HTTPOK.new("1.1", "200", "OK")
+      response["Content-Type"] = content_type
+      response.define_singleton_method(:read_body) { raise "Unsafe image body should not be read" }
+      with_cover_response(response) { get plex_cover_path(path: "/library/metadata/1/thumb/123") }
+      assert_response :not_found
+    end
+  end
+
+  test "reports interrupted Plex cover responses as a bad gateway" do
+    [ EOFError, Errno::ECONNRESET, Net::HTTPBadResponse ].each do |error|
+      response = Net::HTTPOK.new("1.1", "200", "OK")
+      response["Content-Type"] = "image/jpeg"
+      response.define_singleton_method(:read_body) { raise error, "Interrupted upstream response" }
+      with_cover_response(response) { get plex_cover_path(path: "/library/metadata/1/thumb/123") }
+      assert_response :bad_gateway
+    end
+  end
+
   test "aborts chunked covers at the byte limit without draining the response" do
     response = Net::HTTPOK.new("1.1", "200", "OK")
     response["Content-Type"] = "image/jpeg"

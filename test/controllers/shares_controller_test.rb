@@ -82,7 +82,7 @@ class SharesControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_select "input[type=checkbox][name='library_ids[]']"
     assert_select "select[name='library_ids[]']", count: 0
-    assert_select "tr[role='link'][data-controller='row-link']"
+    assert_select "tr[data-controller='row-link'] a[href='#{user_path('42')}']"
     assert_select "a", text: "Open user", count: 0
   end
 
@@ -308,6 +308,69 @@ class SharesControllerTest < ActionDispatch::IntegrationTest
     end
     assert_nil client.updated_share
     assert_match "Reload this user", flash[:alert]
+  end
+
+  test "bulk changes write one snapshot for all changed users" do
+    snapshot = share_snapshots(:one)
+    library = { "id" => "2", "key" => "2", "title" => "TV", "type" => "show" }
+    template = snapshot.users.first
+    snapshot.update!(libraries: snapshot.libraries + [ library ], users: [
+      template, template.merge("id" => "43", "share_id" => "100", "username" => "other")
+    ])
+
+    client = FakeClient.new
+    with_plex_client(client) do
+      assert_difference "ShareSnapshot.count", 1 do
+        assert_difference "ShareAuditLog.count", 2 do
+          post bulk_shares_path, params: { user_ids: [ "42", "43" ], library_id: "2", operation: "add" }
+        end
+      end
+    end
+
+    assert_redirected_to users_path
+    assert_equal "Updated 2 shares.", flash[:notice]
+    assert ShareSnapshot.latest_for("machine-one").users.all? { |user| user["libraries"].map { |item| item["id"] } == %w[1 2] }
+  end
+
+  test "bulk changes retain earlier successes when a later Plex request fails" do
+    snapshot = share_snapshots(:one)
+    library = { "id" => "2", "key" => "2", "title" => "TV", "type" => "show" }
+    template = snapshot.users.first
+    snapshot.update!(libraries: snapshot.libraries + [ library ], users: [
+      template, template.merge("id" => "43", "share_id" => "100", "username" => "other")
+    ])
+    client = FakeClient.new
+    client.define_singleton_method(:update_shared_server) do |_, share_id, _|
+      raise Plex::Client::Error, "Synthetic failure" if share_id == "100"
+    end
+
+    with_plex_client(client) do
+      assert_difference "ShareSnapshot.count", 1 do
+        assert_difference "ShareAuditLog.count", 1 do
+          post bulk_shares_path, params: { user_ids: [ "42", "43" ], library_id: "2", operation: "add" }
+        end
+      end
+    end
+
+    assert_redirected_to users_path
+    assert_match "Synthetic failure", flash[:alert]
+    users = ShareSnapshot.latest_for("machine-one").users.index_by { |user| user["id"] }
+    assert_equal %w[1 2], users.fetch("42")["libraries"].map { |item| item["id"] }
+    assert_equal %w[1], users.fetch("43")["libraries"].map { |item| item["id"] }
+  end
+
+  test "rejects malformed bulk user selections without contacting Plex" do
+    [ { "nested" => "42" }, "42" ].each do |selection|
+      client = FakeClient.new
+      with_plex_client(client) do
+        assert_no_difference [ "ShareSnapshot.count", "ShareAuditLog.count" ] do
+          post bulk_shares_path, params: { user_ids: selection, library_id: "1", operation: "remove" }
+        end
+      end
+      assert_redirected_to users_path
+      assert_nil client.removed_share_id
+      assert_match "Invalid user selection", flash[:alert]
+    end
   end
 
   test "admin can cancel pending invite with email id" do

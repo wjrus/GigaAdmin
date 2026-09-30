@@ -4,11 +4,16 @@ module ApplicationHelper
     return if path.blank?
 
     uri = URI(path)
-    proxy_path = uri.absolute? ? uri.request_uri : path
+    return if uri.fragment || (uri.absolute? && (!uri.is_a?(URI::HTTP) || uri.host.blank?))
+    return if !uri.absolute? && uri.host
+
+    proxy_path = uri.path
     proxy_path = "/#{proxy_path}" unless proxy_path.start_with?("/")
+    query = URI.decode_www_form(uri.query.to_s).reject { |key, _| key.casecmp?("X-Plex-Token") }
+    proxy_path += "?#{URI.encode_www_form(query)}" if query.any?
 
     plex_cover_path(path: proxy_path)
-  rescue URI::InvalidURIError, ActionController::UrlGenerationError
+  rescue URI::InvalidURIError, ArgumentError, ActionController::UrlGenerationError
     nil
   end
 

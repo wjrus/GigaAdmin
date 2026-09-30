@@ -50,29 +50,41 @@ class UsersController < ApplicationController
     @libraries = @report&.libraries || []
     @active_library_titles = @libraries.map(&:title)
     @active_library_ids = @libraries.flat_map { |library| [ library.id, library.key ] }.compact.map(&:to_s)
-    @all_users = users_with_local_stream_accounts(@report&.users || [], include_suppressed: true)
-    @notes_by_user_id = PlexUserNote.for_users(@all_users)
+    @all_users = @report&.users || []
     @user = resolve_user(params[:plex_user_id])
+    unless @user
+      @all_users = users_with_local_stream_accounts(@all_users, include_suppressed: true)
+      @user = resolve_user(params[:plex_user_id])
+    end
     @user ||= cache_pending_invite_for(params[:plex_user_id])
     raise ActiveRecord::RecordNotFound, "Unknown Plex user" unless @user
 
-    load_stats_period
-    @note = PlexUserNote.find_by(plex_user_id: @user.id.to_s)
-    load_stream_history
-    load_user_stream_stats
-    load_user_stream_charts
-    load_now_playing_samples
-    @audit_logs = ShareAuditLog.where(plex_user_id: @user.id.to_s).recent.limit(50)
+    @stream_filter_params = stream_filter_params
     respond_to do |format|
-      format.html
+      format.html do
+        @notes_by_user_id = PlexUserNote.for_users([ @user ])
+        @note = @notes_by_user_id[@user.id.to_s]
+        load_stats_period
+        load_stream_history
+        load_user_stream_stats
+        load_user_stream_charts
+        load_now_playing_samples
+        @audit_logs = ShareAuditLog.where(plex_user_id: @user.id.to_s).recent.limit(50)
+      end
       format.csv do
-        send_data stream_history_csv,
-          filename: "plex-stream-history-#{@user.id}-#{Time.zone.today}.csv",
-          type: "text/csv"
+        response.headers["Content-Type"] = "text/csv; charset=utf-8"
+        response.headers["Content-Disposition"] = ActionDispatch::Http::ContentDisposition.format(
+          disposition: "attachment", filename: "plex-stream-history-#{@user.id}-#{Time.zone.today}.csv"
+        )
+        response.headers["Cache-Control"] = "no-store"
+        self.response_body = stream_history_csv
       end
     end
   rescue Plex::ConfigurationError => error
     @configuration_error = error.message
+  rescue ActiveRecord::RecordNotFound => error
+    @plex_error = error.message
+    request.format.html? ? render(:show, status: :not_found) : head(:not_found)
   rescue ActiveRecord::ActiveRecordError => error
     @plex_error = error.message
   end
@@ -118,7 +130,7 @@ class UsersController < ApplicationController
   private
 
   def note_params
-    params.require(:plex_user_note).permit(:username, :email, :notes)
+    params.expect(plex_user_note: [ :username, :email, :notes ])
   end
 
   def truthy_param?(value)
@@ -157,6 +169,8 @@ class UsersController < ApplicationController
     return unless invite && invite[:id].present?
 
     invite_server = pending_invite_server(invite)
+    return unless truthy_param?(invite[:server]) && invite_server
+
     pending_user = pending_user_row(invite, invite_server)
     @snapshot = ShareSnapshot.create!(
       machine_identifier: @snapshot.machine_identifier,
@@ -169,8 +183,7 @@ class UsersController < ApplicationController
     @libraries = @report.libraries
     @active_library_titles = @libraries.map(&:title)
     @active_library_ids = @libraries.flat_map { |library| [ library.id, library.key ] }.compact.map(&:to_s)
-    @all_users = users_with_local_stream_accounts(@report.users, include_suppressed: true)
-    @notes_by_user_id = PlexUserNote.for_users(@all_users)
+    @all_users = @report.users
     resolve_user(pending_user["id"]) || resolve_user(identifier)
   rescue Plex::Client::Error => error
     Rails.logger.warn("[plex.invites] lookup #{identifier}: #{error.message}")
@@ -188,13 +201,8 @@ class UsersController < ApplicationController
   end
 
   def pending_invite_server(invite)
-    server_id = @snapshot.server["id"].to_s
-    server_name = @snapshot.server["name"].to_s
     Array(invite[:servers]).find do |candidate|
-      candidate[:machine_identifier].to_s == @machine_identifier ||
-        candidate[:client_identifier].to_s == @machine_identifier ||
-        candidate[:id].to_s == server_id ||
-        candidate[:name].to_s == server_name
+      Plex::SharingReport.invite_server_matches?(candidate, @snapshot.server.symbolize_keys, machine_identifier: @machine_identifier)
     end
   end
 
@@ -231,7 +239,6 @@ class UsersController < ApplicationController
   def load_stream_history
     @stream_per_page = 25
     @stream_page = params.fetch(:stream_page, "1").to_i.clamp(1, 100_000)
-    @stream_filter_params = stream_filter_params
     @stream_type_options = stream_scope.where.not(media_type: [ nil, "" ]).distinct.order(:media_type).pluck(:media_type)
     @stream_filters_active = @stream_filter_params.to_h.values.any?(&:present?)
     scope = filtered_stream_scope.recent
@@ -285,8 +292,10 @@ class UsersController < ApplicationController
       )
     end
     scope = scope.where(media_type: @stream_filter_params[:stream_type]) if @stream_filter_params[:stream_type].present?
-    scope = scope.where("viewed_at >= ?", parsed_stream_date(@stream_filter_params[:stream_from])&.beginning_of_day) if parsed_stream_date(@stream_filter_params[:stream_from])
-    scope = scope.where("viewed_at <= ?", parsed_stream_date(@stream_filter_params[:stream_to])&.end_of_day) if parsed_stream_date(@stream_filter_params[:stream_to])
+    from = parsed_stream_date(@stream_filter_params[:stream_from])
+    to = parsed_stream_date(@stream_filter_params[:stream_to])
+    scope = scope.where("viewed_at >= ?", from.beginning_of_day) if from
+    scope = scope.where("viewed_at < ?", to.tomorrow.beginning_of_day) if to
     scope
   end
 
@@ -378,7 +387,8 @@ class UsersController < ApplicationController
   end
 
   def top_group_value(scope, column)
-    value, count = scope.where.not(column => [ nil, "" ]).group(column).count.max_by { |_value, grouped_count| grouped_count }
+    value, count = scope.where.not(column => [ nil, "" ]).group(column)
+      .order(Arel.sql("COUNT(*) DESC"), column).limit(1).pick(column, Arel.sql("COUNT(*)"))
     value ? "#{value} (#{count})" : "Unknown"
   end
 
@@ -538,10 +548,11 @@ class UsersController < ApplicationController
   end
 
   def stream_history_csv
-    CSV.generate(headers: true) do |csv|
-      csv << [ "viewed_at", "title", "type", "library", "player", "ip_address", "rating_key" ]
-      filtered_stream_scope.recent.each do |event|
-        csv << CsvSafety.row([
+    scope = filtered_stream_scope
+    Enumerator.new do |csv|
+      csv << CSV.generate_line([ "viewed_at", "title", "type", "library", "player", "ip_address", "rating_key" ])
+      scope.find_each(batch_size: 1_000, cursor: [ :viewed_at, :id ], order: [ :desc, :desc ]) do |event|
+        csv << CSV.generate_line(CsvSafety.row([
           event.viewed_at.iso8601,
           event.label,
           event.media_type,
@@ -549,7 +560,7 @@ class UsersController < ApplicationController
           event.player_label == "Unknown" ? nil : event.player_label,
           event.ip_address,
           event.rating_key
-        ])
+        ]))
       end
     end
   end

@@ -58,9 +58,6 @@ class ApplicationController < ActionController::Base
   end
 
   def allowed_admin_emails
-    (ENV["ADMIN_USERS"].presence || ENV["ADMIN_USER"].presence || "")
-      .split(",")
-      .map { |email| email.strip.downcase }
-      .reject(&:blank?)
+    AdminUser.configured_super_admin_emails
   end
 end

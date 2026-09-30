@@ -9,11 +9,12 @@ const systemTheme = () => {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
 }
 
-const savedThemeChoice = () => {
+let themeChoice = "system"
+try {
   const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY)
-  if (THEME_CHOICES.has(storedTheme)) return storedTheme
-
-  return "system"
+  if (THEME_CHOICES.has(storedTheme)) themeChoice = storedTheme
+} catch (_error) {
+  // Storage may be blocked; the picker still works for this page session.
 }
 
 const applyThemeChoice = (choice) => {
@@ -38,7 +39,7 @@ const applyThemeChoice = (choice) => {
 let themePickerInstalled = false
 
 const installThemePicker = () => {
-  applyThemeChoice(savedThemeChoice())
+  applyThemeChoice(themeChoice)
 
   if (themePickerInstalled) return
 
@@ -46,13 +47,17 @@ const installThemePicker = () => {
     const select = event.target.closest("[data-theme-select]")
     if (!select) return
 
-    const choice = THEME_CHOICES.has(select.value) ? select.value : "system"
-    window.localStorage.setItem(THEME_STORAGE_KEY, choice)
-    applyThemeChoice(choice)
+    themeChoice = THEME_CHOICES.has(select.value) ? select.value : "system"
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, themeChoice)
+    } catch (_error) {
+      // Keep the selection in memory when persistent storage is unavailable.
+    }
+    applyThemeChoice(themeChoice)
   })
 
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
-    if (savedThemeChoice() === "system") applyThemeChoice("system")
+    if (themeChoice === "system") applyThemeChoice("system")
   })
 
   themePickerInstalled = true

@@ -105,7 +105,7 @@
                 <td class="px-4 py-3">
                   <div class="relative w-11 shrink-0 overflow-hidden rounded border border-zinc-800 bg-zinc-900 aspect-[2/3]">
                     <% if cover_url.present? %>
-                      <img src="<%= cover_url %>" alt="" class="absolute inset-0 h-full w-full object-cover">
+                      <img src="<%= cover_url %>" alt="" loading="lazy" decoding="async" class="absolute inset-0 h-full w-full object-cover">
                     <% end %>
                   </div>
                 </td>

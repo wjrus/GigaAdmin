@@ -170,7 +170,7 @@ class UsersControllerTest < ActionDispatch::IntegrationTest
     assert_select "a", "Past year"
     assert_select "a", "All time"
     assert_select "h2", "Stream History"
-    assert_select "h2", "Recent Live Sessions"
+    assert_select "h2", "Legacy session samples"
     assert_select "span", text: "Taskmaster"
     assert_select "span", text: "The Nice Guys"
     assert_select "input[name='stream_q']"
@@ -365,7 +365,7 @@ class UsersControllerTest < ActionDispatch::IntegrationTest
     assert_select "textarea[name='plex_user_note[notes]']", count: 0
     assert_select "button", text: "Apply to selected", count: 0
     assert_select "input[name='user_ids[]']", count: 0
-    assert_select "tr[role='link'][data-controller='row-link']"
+    assert_select "tr[data-controller='row-link'] a[href='#{user_path('42')}']"
     assert_select "p", text: "1 user shown"
   end
 
@@ -471,6 +471,69 @@ class UsersControllerTest < ActionDispatch::IntegrationTest
     assert_includes @response.media_type, "text/csv"
     assert_includes @response.body, "name,username,email,status"
     assert_includes @response.body, "viewer,viewer,viewer@example.com,accepted"
+  end
+
+  test "streams complete history in bounded batches without building dashboard statistics" do
+    start = 2.days.ago
+    PlexStreamEvent.insert_all!(1_005.times.map do |index|
+      {
+        machine_identifier: "machine-one", account_id: "42", viewed_at: start + (index / 2).seconds,
+        title: "Export #{index}", media_type: "movie", rating_key: "export-#{index}"
+      }
+    end)
+    queries = []
+    subscriber = ->(_name, _start, _finish, _id, payload) do
+      queries << payload[:sql] if payload[:sql].match?(/SELECT.*FROM "plex_stream_events"/m)
+    end
+
+    body = nil
+    ActiveSupport::Notifications.subscribed(subscriber, "sql.active_record") do
+      get user_path("42", format: :csv, stream_q: "Export")
+      body = response.body
+    end
+
+    assert_response :success
+    rows = CSV.parse(body, headers: true)
+    assert_equal (0...1_005).to_a.reverse.map { |index| "Export #{index}" }, rows.map { |row| row["title"] }
+    assert_equal 2, queries.size, queries.join("\n")
+    assert queries.all? { |sql| sql.include?("LIMIT") && !sql.match?(/GROUP BY|COUNT\(|DISTINCT ON/) }, queries.join("\n")
+  end
+
+  test "does not cache requested invites for another Plex server or friendship-only invites" do
+    [
+      { server: "1", servers: [ { name: "Different Plex" } ] },
+      { server: "1", servers: [ { name: "Local Plex", machine_identifier: "other-machine" } ] },
+      { server: "1", servers: [] },
+      { server: "0", friend: "1", servers: [ { machine_identifier: "machine-one" } ] }
+    ].each do |attributes|
+      invite = attributes.merge(id: "unrelated", email: "someone@example.com")
+      client = Object.new
+      client.define_singleton_method(:requested_invites) { [ invite ] }
+      with_plex_client(client) do
+        assert_no_difference "ShareSnapshot.count" do
+          get user_path("someone@example.com")
+        end
+      end
+
+      assert_response :not_found
+      assert_select "button", text: "Cancel invite", count: 0
+    end
+  end
+
+  test "missing users return not found for both HTML and CSV" do
+    get user_path("missing-user")
+    assert_response :not_found
+    assert_select "h1", "User unavailable"
+
+    get user_path("missing-user", format: :csv)
+    assert_response :not_found
+  end
+
+  test "rejects malformed note attributes without saving a note" do
+    assert_no_difference "PlexUserNote.count" do
+      patch user_note_path("42"), params: { plex_user_note: "invalid" }
+    end
+    assert_response :bad_request
   end
 
   test "escapes spreadsheet formula prefixes in users csv" do

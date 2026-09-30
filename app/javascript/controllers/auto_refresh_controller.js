@@ -4,6 +4,7 @@ export default class extends Controller {
   static values = {
     interval: { type: Number, default: 10000 },
     url: String,
+    replace: { type: Boolean, default: false },
   }
 
   connect() {
@@ -64,7 +65,16 @@ export default class extends Controller {
       if (!response.ok) return
 
       const html = await response.text()
-      if (this.active && this.request === request) this.element.innerHTML = html
+      if (this.active && this.request === request) {
+        if (this.replaceValue) {
+          // Some responses include the controller element itself. Replacing it
+          // lets Stimulus start one fresh poller, or stop when the run finishes.
+          this.element.outerHTML = html
+          this.stop()
+        } else {
+          this.element.innerHTML = html
+        }
+      }
     } catch (_error) {
       // Keep the existing content visible until the next polling attempt.
     } finally {
