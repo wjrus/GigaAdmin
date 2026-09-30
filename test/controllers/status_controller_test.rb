@@ -36,12 +36,11 @@ class StatusControllerTest < ActionDispatch::IntegrationTest
       full_title: "Feature",
       media_type: "movie"
     )
-    PlexNowPlayingSample.create!(
+    PlexActivitySample.create!(
       machine_identifier: "machine-one",
       sampled_at: Time.zone.local(2026, 5, 25, 12, 0, 0),
-      user_label: "Viewer",
-      player_title: "Apple TV",
-      player_platform: "tvOS"
+      total_sessions: 3,
+      transcode_sessions: 1
     )
     ENV["PLEX_MACHINE_IDENTIFIER"] = "machine-one"
 
@@ -54,8 +53,8 @@ class StatusControllerTest < ActionDispatch::IntegrationTest
     assert_select "form[action='#{refresh_shares_path}']", count: 0
     assert_select "input[type=checkbox][name='include_history']", count: 0
     assert_select "h2", "Playback History"
-    assert_select "h2", "Now Playing Samples"
-    assert_select "dd", text: "Viewer"
+    assert_select "h2", "Activity history"
+    assert_select "dd", text: "3"
   end
 
   test "renders revision from environment" do
@@ -65,6 +64,20 @@ class StatusControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :success
     assert_select "p", text: "abc1234"
+  end
+
+  test "daily refresh display uses the scheduler timezone and rejects malformed times" do
+    original_tz = ENV["TZ"]
+    ENV["TZ"] = "America/New_York"
+    travel_to Time.utc(2026, 9, 29, 7, 0)
+    controller = StatusController.new
+    expected = Time.find_zone!("America/New_York").local(2026, 9, 29, 4, 15)
+    assert_equal expected, controller.send(:next_daily_refresh_at)
+    ENV["PLEX_DAILY_REFRESH_AT"] = "garbage"
+    assert_nil controller.send(:next_daily_refresh_at)
+  ensure
+    ENV["TZ"] = original_tz
+    travel_back
   end
 
   private

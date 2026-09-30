@@ -1,0 +1,69 @@
+<section class="rounded-lg border border-zinc-800 bg-zinc-950 p-5" aria-labelledby="server-activity-title">
+  <div class="flex flex-wrap items-start justify-between gap-4">
+    <div>
+      <h2 id="server-activity-title" class="text-lg font-semibold text-white">Server Activity</h2>
+      <p class="mt-1 text-sm text-zinc-400">Observed stream concurrency and Plex-reported bandwidth. One poll per minute.</p>
+    </div>
+    <nav class="flex flex-wrap gap-2" aria-label="Server activity period">
+      <% Plex::ActivityChart::PERIODS.each do |period, options| %>
+        <%= link_to options[:label], stats_path(period: @stats_period, activity_period: period),
+          class: "rounded-md border px-3 py-2 text-sm #{@live_activity.period == period ? 'border-cyan-300 text-cyan-300' : 'border-zinc-700 text-zinc-300'}",
+          aria: { current: @live_activity.period == period ? "true" : nil } %>
+      <% end %>
+    </nav>
+  </div>
+  <% unless PlexActivitySample.enabled? %>
+    <p class="mt-4 text-sm text-amber-200">Automatic activity collection is disabled.</p>
+  <% end %>
+  <% if @live_activity.sample_count.zero? %>
+    <p class="mt-4 text-sm text-zinc-400">No activity collected in this window yet. Collection begins when the production background worker is running and Plex is configured. You can collect a poll from <%= link_to "Maintenance", maintenance_path, class: "text-cyan-300 underline" %>.</p>
+  <% else %>
+    <div class="mt-5 grid gap-3 sm:grid-cols-3">
+      <% { "Peak concurrent streams" => @live_activity.peak(:total), "Peak transcodes" => @live_activity.peak(:transcode), "Peak estimated Mbps" => @live_activity.peak(:bandwidth)&.round(1) || "Unknown" }.each do |label, value| %>
+        <div class="rounded-md bg-zinc-900 p-3">
+          <p class="text-xs text-zinc-400"><%= label %></p>
+          <p class="mt-1 text-2xl font-semibold text-white"><%= value %></p>
+        </div>
+      <% end %>
+    </div>
+    <p class="mt-4 text-xs text-zinc-400"><%= number_with_delimiter(@live_activity.sample_count) %> polls · <%= @live_activity.coverage %>% of this window observed · Latest <%= l(@live_activity.latest_at, format: :short) %><%= " (collection is behind)" if @live_activity.stale? %>.</p>
+    <div class="mt-5 grid gap-6 xl:grid-cols-2">
+      <% charts = [
+        { title: "Concurrent Streams", unit: "streams", series: { total: { label: "All streams", color: "var(--chart-stream)" }, transcode: { label: "Transcodes", color: "var(--chart-transcode)" } } },
+        { title: "Delivery Methods", unit: "streams", series: { direct_play: { label: "Direct play", color: "var(--chart-direct-play)" }, direct_stream: { label: "Direct stream", color: "var(--chart-direct-stream)" }, unknown: { label: "Unknown", color: "var(--chart-unknown)" } } },
+        { title: "Estimated Bandwidth", unit: "Mbps", series: { bandwidth: { label: "Plex bandwidth estimate", color: "var(--chart-stream)" } } }
+      ] %>
+      <% charts.each do |chart| %>
+        <div class="min-w-0">
+          <h3 class="text-sm font-semibold text-white"><%= chart[:title] %></h3>
+          <div class="overflow-x-auto" tabindex="0" role="region" aria-label="<%= chart[:title] %> chart">
+            <%= activity_chart_svg(@live_activity, series: chart[:series], unit: chart[:unit], title: chart[:title]) %>
+          </div>
+          <div class="mt-2 flex flex-wrap gap-4 text-xs text-zinc-400">
+            <% chart[:series].each_value do |series| %>
+              <span><span aria-hidden="true" style="color: <%= series[:color] %>">●</span> <%= series[:label] %></span>
+            <% end %>
+          </div>
+        </div>
+      <% end %>
+      <div class="text-sm leading-6 text-zinc-400">
+        <p>Each point is the observed peak within a <%= @live_activity.bucket_seconds / 60 %>-minute bucket. Buckets with no successful polls remain gaps; successful idle polls record zero. Short sessions between polls can be missed.</p>
+        <p class="mt-3">Bandwidth is Plex's estimate, including paused sessions, rather than measured network throughput. Polls missing a session's bandwidth are excluded from that graph. Delivery-method peaks are independent and may occur at different times within a bucket.</p>
+      </div>
+    </div>
+    <details class="mt-5 text-sm text-zinc-400">
+      <summary class="cursor-pointer text-cyan-300">View chart data</summary>
+      <div class="mt-3 overflow-x-auto">
+        <table class="w-full text-left text-xs">
+          <caption class="pb-2 text-left">Bucket peaks; a dash means no observation. Times are UTC.</caption>
+          <thead><tr><% ["Bucket", "Polls", "Streams", "Transcodes", "Direct play", "Direct stream", "Unknown", "Mbps", "Bandwidth polls"].each do |label| %><th scope="col" class="p-2"><%= label %></th><% end %></tr></thead>
+          <tbody>
+            <% @live_activity.points.each do |point| %>
+              <tr><th scope="row" class="p-2 font-normal whitespace-nowrap"><%= point[:at].strftime("%b %-d %H:%M") %></th><% [:samples, :total, :transcode, :direct_play, :direct_stream, :unknown, :bandwidth, :bandwidth_samples].each do |key| %><td class="p-2"><%= point[key].nil? ? "—" : point[key] %></td><% end %></tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    </details>
+  <% end %>
+</section>

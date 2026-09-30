@@ -26,6 +26,19 @@
   --theme-shadow: 0 16px 40px rgba(9, 9, 11, 0.12);
   --theme-focus: #0f766e;
   --theme-font: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --chart-stream: #0e7490;
+  --chart-transcode: #a16207;
+  --chart-direct-play: #15803d;
+  --chart-direct-stream: #7e22ce;
+  --chart-unknown: #52525b;
+}
+
+:root[data-theme="dark"], :root[data-theme="terminal"], :root[data-theme="amber"] {
+  --chart-stream: #67e8f9;
+  --chart-transcode: #fbbf24;
+  --chart-direct-play: #86efac;
+  --chart-direct-stream: #c4b5fd;
+  --chart-unknown: #a1a1aa;
 }
 
 :root[data-theme="dark"] {

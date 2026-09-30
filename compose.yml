@@ -70,24 +70,12 @@ services:
       - app_storage:/rails/storage
 
   now_playing_sampler:
+    # Compatibility name for retiring containers from older deployments.
+    # Activity sampling now runs through the web process's Solid Queue worker.
     profiles: [sampling]
     image: gigaadmin:production
-    restart: unless-stopped
-    env_file:
-      - .env.production
-    environment:
-      RAILS_ENV: production
-      POSTGRES_HOST: db
-      POSTGRES_PORT: "5432"
-      PLEX_DATABASE_USERNAME: plex
-    depends_on:
-      db:
-        condition: service_healthy
-      web:
-        condition: service_healthy
-    command: ["bash", "./docker/now-playing-sampler"]
-    volumes:
-      - app_storage:/rails/storage
+    restart: "no"
+    command: ["true"]
 
 volumes:
   postgres_data:

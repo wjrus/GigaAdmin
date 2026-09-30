@@ -15,7 +15,7 @@ class DeployScriptTest < ActiveSupport::TestCase
     File.write(File.join(@directory, ".git"), "gitdir: /unused-test-path\n")
     stub_command("git", 'if [[ "$1" == rev-parse ]]; then echo abc123; fi')
     stub_command("docker", <<~BASH)
-      if [[ "$*" == "compose --profile sampling ps --status running --status restarting --services" ]]; then
+      if [[ "$*" == "compose --profile sampling ps --all --services" ]]; then
         printf '%s\\n' "${TEST_RUNNING_SERVICES:-web}"
       elif [[ "$*" == "compose ps -q"* ]]; then
         echo fixture-container
@@ -38,23 +38,38 @@ class DeployScriptTest < ActiveSupport::TestCase
     FileUtils.remove_entry(@directory)
   end
 
-  test "updates an enabled sampler and honors worktree metadata from another directory" do
+  test "retires the legacy sampler only after web health and honors worktree metadata" do
     output, status = deploy("TEST_RUNNING_SERVICES" => "web\nnow_playing_sampler")
 
     assert status.success?, output
     assert_includes commands, "git pull --ff-only"
-    assert_includes commands, "docker compose --profile sampling ps --status running --status restarting --services"
-    assert_includes commands, "docker compose up -d --no-deps web daily_refresh now_playing_sampler"
+    assert_includes commands, "docker compose --profile sampling ps --all --services"
+    assert_includes commands, "docker compose up -d --no-deps web daily_refresh\n"
+    assert_includes commands, "docker compose --profile sampling stop now_playing_sampler"
+    assert_includes commands, "docker compose --profile sampling rm -f now_playing_sampler"
+    assert_operator commands.index("curl "), :<, commands.index("docker compose --profile sampling stop now_playing_sampler")
+    assert_not_includes commands, "up -d --no-deps web daily_refresh now_playing_sampler"
     assert_includes commands, "curl --connect-timeout 2 --max-time 3"
     assert_not File.exist?(File.join(@directory, "tmp/deploy.lock"))
   end
 
-  test "keeps the sampler opt in" do
+  test "does not start or remove a legacy sampler on a fresh installation" do
     output, status = deploy
 
     assert status.success?, output
     assert_includes commands, "docker compose up -d --no-deps web daily_refresh\n"
     assert_not_includes commands, "daily_refresh now_playing_sampler"
+    assert_not_includes commands, "stop now_playing_sampler"
+    assert_not_includes commands, "rm -f now_playing_sampler"
+  end
+
+  test "leaves the legacy sampler running if replacement health verification fails" do
+    output, status = deploy("TEST_RUNNING_SERVICES" => "web\nnow_playing_sampler", "TEST_PUBLISHED_ENDPOINT" => "")
+
+    assert_not status.success?
+    assert_includes output, "web has no usable published TCP port"
+    assert_not_includes commands, "stop now_playing_sampler"
+    assert_not_includes commands, "rm -f now_playing_sampler"
   end
 
   test "probes the published port and bind using the running container hostname" do

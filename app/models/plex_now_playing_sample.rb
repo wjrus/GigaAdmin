@@ -1,44 +1,7 @@
+# Legacy per-session details remain readable after the aggregate collector upgrade.
+# New activity is stored in PlexActivitySample without user or device metadata.
 class PlexNowPlayingSample < ApplicationRecord
   validates :machine_identifier, :sampled_at, presence: true
 
   scope :recent, -> { order(sampled_at: :desc, id: :desc) }
-
-  def self.retention_days
-    ENV.fetch("PLEX_NOW_PLAYING_RETENTION_DAYS", "90").to_i.clamp(1, 3650)
-  end
-
-  def self.prune!(older_than: retention_days.days.ago)
-    where("sampled_at < ?", older_than).delete_all
-  end
-
-  def self.record_sessions!(machine_identifier, sessions, sampled_at: Time.current)
-    rows = Array(sessions).map do |stream|
-      {
-        machine_identifier: machine_identifier,
-        sampled_at: sampled_at,
-        session_id: stream.dig(:session, :id).presence,
-        account_id: stream.dig(:user, :id).presence || stream[:account_id].presence,
-        user_label: Plex::StreamFormatter.user_label(stream),
-        player_title: stream.dig(:player, :title).presence,
-        player_platform: stream.dig(:player, :platform).presence,
-        ip_address: stream.dig(:player, :address).presence,
-        state: Plex::StreamFormatter.state(stream),
-        rating_key: PlexStreamEvent.stream_identifier(stream),
-        media_type: stream[:type].presence,
-        title: stream[:title].presence,
-        full_title: Plex::StreamFormatter.title(stream).presence,
-        library_title: stream[:library_section_title].presence,
-        duration: stream[:duration].presence&.to_i,
-        view_offset: stream[:view_offset].presence&.to_i,
-        progress_percent: Plex::StreamFormatter.progress_percent(stream),
-        metadata: stream,
-        created_at: Time.current,
-        updated_at: Time.current
-      }
-    end
-    return 0 if rows.empty?
-
-    insert_all!(rows)
-    rows.size
-  end
 end

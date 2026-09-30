@@ -18,10 +18,9 @@ class MaintenanceControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "renders maintenance page" do
-    PlexNowPlayingSample.create!(
+    PlexActivitySample.create!(
       machine_identifier: "machine-one",
-      sampled_at: Time.zone.local(2026, 5, 25, 12, 0, 0),
-      session_id: "session-one"
+      sampled_at: Time.zone.local(2026, 5, 25, 12, 0, 0)
     )
 
     get maintenance_path
@@ -31,7 +30,7 @@ class MaintenanceControllerTest < ActionDispatch::IntegrationTest
     assert_select "h2", "Plex Data Refresh"
     assert_select "form[action='#{refresh_shares_path}']"
     assert_select "input[type=checkbox][name='include_history']"
-    assert_select "h2", "Now Playing Samples"
+    assert_select "h2", "Activity history"
     assert_select "form[action='#{maintenance_sample_now_playing_path}']"
     assert_select "form[action='#{maintenance_prune_now_playing_samples_path}']"
   end
@@ -56,17 +55,54 @@ class MaintenanceControllerTest < ActionDispatch::IntegrationTest
     assert_select "[data-controller='auto-refresh']"
   end
 
-  test "prunes now playing samples" do
-    PlexNowPlayingSample.create!(
+  test "prunes activity history" do
+    PlexActivitySample.create!(
       machine_identifier: "machine-one",
-      sampled_at: 91.days.ago,
-      session_id: "old"
+      sampled_at: 91.days.ago
     )
 
-    assert_difference -> { PlexNowPlayingSample.count }, -1 do
+    assert_difference -> { PlexActivitySample.count }, -1 do
       post maintenance_prune_now_playing_samples_path
     end
     assert_redirected_to maintenance_path
+  end
+
+  test "invalid retention is visible and cannot delete records" do
+    original = ENV["PLEX_ACTIVITY_RETENTION_DAYS"]
+    ENV["PLEX_ACTIVITY_RETENTION_DAYS"] = "invalid"
+
+    get maintenance_path
+    assert_response :success
+    assert_select "[role=alert]", text: /PLEX_ACTIVITY_RETENTION_DAYS/
+    assert_no_difference -> { PlexActivitySample.count } do
+      post maintenance_prune_now_playing_samples_path
+    end
+    assert_redirected_to maintenance_path
+  ensure
+    ENV["PLEX_ACTIVITY_RETENTION_DAYS"] = original
+  end
+
+  test "manual collection stores an idle poll without legacy details" do
+    original_url = ENV["PLEX_SERVER_BASE_URL"]
+    original_token = ENV["PLEX_TOKEN"]
+    ENV["PLEX_SERVER_BASE_URL"] = "http://plex.example.test"
+    ENV["PLEX_TOKEN"] = "fixture-token"
+    client = Object.new
+    client.define_singleton_method(:playback_sessions) { [] }
+    original = Plex::Client.method(:from_env)
+    Plex::Client.define_singleton_method(:from_env) { client }
+
+    assert_no_difference -> { PlexNowPlayingSample.count } do
+      assert_difference -> { PlexActivitySample.count }, 1 do
+        post maintenance_sample_now_playing_path
+      end
+    end
+    assert_redirected_to maintenance_path
+    assert_equal 0, PlexActivitySample.last.total_sessions
+  ensure
+    Plex::Client.define_singleton_method(:from_env, original) if original
+    ENV["PLEX_SERVER_BASE_URL"] = original_url
+    ENV["PLEX_TOKEN"] = original_token
   end
 
   private

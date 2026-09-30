@@ -21,13 +21,20 @@ access to your media files or Plex's database directory.
 - **See what's playing.** Follow current sessions in a live dashboard with
   artwork and player details when Plex provides them.
 - **Understand your audience.** Explore playback activity by user, library, and
-  time period, with CSV exports for users and playback history.
+  time period. Discover the top movies, shows, and viewers, with CSV exports for
+  users and playback history.
+- **See your server's workload.** Follow concurrent streams, transcoding, and
+  Plex's estimated bandwidth over time, collected automatically inside the app.
 - **Know what changed.** Review an audit trail of access changes, invitations,
   and local administrative actions made through GigaAdmin.
 
 Sharing views and historical reports use locally saved Plex data, so browsing
 them doesn't require a fresh Plex request on every page. Scheduled and on-demand
 refreshes keep that data current.
+
+Activity graphs start collecting when GigaAdmin runs. No separate sampler
+container is needed, and new activity samples contain aggregate counts rather
+than user or device details.
 
 ## Make it yours
 

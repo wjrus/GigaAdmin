@@ -12,19 +12,26 @@
     <%= render "refresh_panel" %>
 
     <div class="rounded-lg border border-zinc-800 bg-zinc-950 p-5">
-      <h2 class="text-lg font-semibold text-white">Now Playing Samples</h2>
+      <h2 class="text-lg font-semibold text-white">Activity history</h2>
+      <p class="mt-2 text-sm text-zinc-400">Collect server-wide stream and transcode totals for activity graphs. These samples do not store individual users, devices, or IP addresses.</p>
+      <% if @activity_configuration_error %>
+        <p role="alert" class="mt-3 text-sm text-amber-200"><%= @activity_configuration_error %> Automatic pruning will not run until this is corrected.</p>
+      <% end %>
       <dl class="mt-4 grid gap-2 text-sm text-zinc-400">
-        <div><dt class="inline text-zinc-500">Stored:</dt> <dd class="inline"><%= number_with_delimiter(@now_playing_sample_count) %></dd></div>
-        <div><dt class="inline text-zinc-500">Retention:</dt> <dd class="inline"><%= pluralize(@retention_days, "day") %></dd></div>
-        <div><dt class="inline text-zinc-500">Latest:</dt> <dd class="inline"><%= @latest_now_playing_sample ? l(@latest_now_playing_sample.sampled_at, format: :long) : "None" %></dd></div>
-        <div><dt class="inline text-zinc-500">Oldest:</dt> <dd class="inline"><%= @oldest_now_playing_sample ? l(@oldest_now_playing_sample.sampled_at, format: :long) : "None" %></dd></div>
+        <div><dt class="inline text-zinc-500">Stored:</dt> <dd class="inline"><%= number_with_delimiter(@activity_sample_count) %></dd></div>
+        <div><dt class="inline text-zinc-500">Retention:</dt> <dd class="inline"><%= @activity_retention_days ? pluralize(@activity_retention_days, "day") : "Invalid configuration" %></dd></div>
+        <div><dt class="inline text-zinc-500">Latest:</dt> <dd class="inline"><%= @latest_activity_sample ? l(@latest_activity_sample.sampled_at, format: :long) : "None" %></dd></div>
+        <div><dt class="inline text-zinc-500">Oldest:</dt> <dd class="inline"><%= @oldest_activity_sample ? l(@oldest_activity_sample.sampled_at, format: :long) : "None" %></dd></div>
+        <% if @latest_activity_sample %>
+          <div><dt class="inline text-zinc-500">Latest stream totals:</dt> <dd class="inline"><%= number_with_delimiter(@latest_activity_sample.total_sessions) %> streams · <%= number_with_delimiter(@latest_activity_sample.transcode_sessions) %> transcodes</dd></div>
+        <% end %>
       </dl>
       <div class="mt-5 flex flex-wrap gap-3">
-        <%= button_to "Sample now",
+        <%= button_to "Collect activity now",
           maintenance_sample_now_playing_path,
           method: :post,
           class: "inline-flex cursor-pointer items-center justify-center rounded-md bg-cyan-300 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-cyan-200 focus:outline-none focus:ring-2 focus:ring-cyan-200 focus:ring-offset-2 focus:ring-offset-zinc-950" %>
-        <%= button_to "Prune old samples",
+        <%= button_to "Prune activity history",
           maintenance_prune_now_playing_samples_path,
           method: :post,
           class: "inline-flex cursor-pointer items-center justify-center rounded-md border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-900 hover:text-white focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:ring-offset-2 focus:ring-offset-zinc-950" %>

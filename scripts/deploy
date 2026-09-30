@@ -162,7 +162,8 @@ Usage:
 
 Builds the production image, starts PostgreSQL, runs db:prepare, starts the web
 container, and verifies the published web endpoint (HTTPS for letsencrypt mode).
-An already-running now-playing sampler is updated with the new image too.
+Activity sampling runs inside the app. A legacy sampler container is retired
+only after the replacement web service passes both health checks.
 
 Compose reads PLEX_ADMIN_BIND and PLEX_ADMIN_PORT from .env when present.
 Shell overrides also work: PLEX_ADMIN_PORT=3011 ./scripts/deploy.
@@ -186,10 +187,10 @@ update_code
 set_app_revision
 compose config --quiet
 
-services=(web daily_refresh)
-running_services="$(compose --profile sampling ps --status running --status restarting --services)"
-if [[ $'\n'"$running_services"$'\n' == *$'\nnow_playing_sampler\n'* ]]; then
-  services+=(now_playing_sampler)
+legacy_sampler_present=false
+existing_services="$(compose --profile sampling ps --all --services)"
+if [[ $'\n'"$existing_services"$'\n' == *$'\nnow_playing_sampler\n'* ]]; then
+  legacy_sampler_present=true
 fi
 
 log "Building app image"
@@ -203,9 +204,15 @@ log "Preparing databases"
 compose run --rm web ./bin/rails db:prepare
 
 log "Starting app services"
-compose up -d --no-deps "${services[@]}"
+compose up -d --no-deps web daily_refresh
 wait_for_healthy web 120
 wait_for_http 30
+
+if [[ "$legacy_sampler_present" == true ]]; then
+  log "Retiring legacy sampler; activity sampling now runs inside the app"
+  compose --profile sampling stop now_playing_sampler
+  compose --profile sampling rm -f now_playing_sampler
+fi
 
 log "Deploy complete"
 compose ps

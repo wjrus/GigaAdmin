@@ -9,9 +9,9 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
 Usage:
   ./scripts/sample-now-playing
 
-Records one current Now Playing sample inside the Compose web container.
+Records aggregate activity for the current minute in the running web container.
 USAGE
   exit 0
 fi
 
-docker compose run --rm web ./bin/rails plex:sample_now_playing
+docker compose exec -T web ./bin/rails plex:sample_now_playing

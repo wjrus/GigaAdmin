@@ -18,8 +18,9 @@ class StatusController < ApplicationController
     @app_revision = app_revision
     @history_summary = @machine_identifier ? PlexStreamEvent.history_summary(@machine_identifier) : nil
     @last_backfill_refresh = refresh_scope.where(status: "completed", admin_email: "rake:backfill").latest_first.first
-    @now_playing_sample_count = @machine_identifier ? PlexNowPlayingSample.where(machine_identifier: @machine_identifier).count : 0
-    @latest_now_playing_sample = @machine_identifier ? PlexNowPlayingSample.where(machine_identifier: @machine_identifier).recent.first : nil
+    activity_scope = PlexActivitySample.where(machine_identifier: @machine_identifier)
+    @activity_sample_count = @machine_identifier ? activity_scope.count : 0
+    @latest_activity_sample = @machine_identifier ? activity_scope.recent.first : nil
   end
 
   def database_ok?
@@ -40,8 +41,14 @@ class StatusController < ApplicationController
   end
 
   def next_daily_refresh_at
-    hour, minute = ENV.fetch("PLEX_DAILY_REFRESH_AT", "04:15").split(":", 2).map(&:to_i)
-    now = Time.current
+    clock = ENV.fetch("PLEX_DAILY_REFRESH_AT", "04:15")
+    return unless clock.match?(/\A(?:[01]\d|2[0-3]):[0-5]\d\z/)
+
+    hour, minute = clock.split(":", 2).map(&:to_i)
+    zone = Time.find_zone(ENV.fetch("TZ", "UTC"))
+    return unless zone
+
+    now = zone.now
     target = now.change(hour: hour, min: minute, sec: 0)
     target += 1.day if target <= now
     target

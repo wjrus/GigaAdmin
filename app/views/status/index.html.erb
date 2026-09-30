@@ -46,8 +46,8 @@
       <p class="mt-2 text-lg font-semibold text-white"><%= @last_backfill_refresh&.finished_at ? l(@last_backfill_refresh.finished_at, format: :short) : "Unknown" %></p>
     </div>
     <div class="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
-      <p class="text-xs font-medium uppercase tracking-wide text-zinc-500">Now Samples</p>
-      <p class="mt-2 text-lg font-semibold text-white"><%= number_with_delimiter(@now_playing_sample_count) %></p>
+      <p class="text-xs font-medium uppercase tracking-wide text-zinc-500">Activity Samples</p>
+      <p class="mt-2 text-lg font-semibold text-white"><%= number_with_delimiter(@activity_sample_count) %></p>
     </div>
   </section>
 
@@ -80,16 +80,17 @@
     </div>
 
     <div class="rounded-lg border border-zinc-800 bg-zinc-950 p-5">
-      <h2 class="text-lg font-semibold text-white">Now Playing Samples</h2>
-      <% if @latest_now_playing_sample %>
+      <h2 class="text-lg font-semibold text-white">Activity history</h2>
+      <p class="mt-2 text-sm text-zinc-400">Server-wide stream and transcode totals, without per-user or device polling records.</p>
+      <% if @latest_activity_sample %>
         <dl class="mt-4 grid gap-2 text-sm text-zinc-400">
-          <div><dt class="inline text-zinc-500">Samples:</dt> <dd class="inline"><%= number_with_delimiter(@now_playing_sample_count) %></dd></div>
-          <div><dt class="inline text-zinc-500">Latest:</dt> <dd class="inline"><%= l(@latest_now_playing_sample.sampled_at, format: :long) %></dd></div>
-          <div><dt class="inline text-zinc-500">Latest user:</dt> <dd class="inline"><%= @latest_now_playing_sample.user_label.presence || "Unknown" %></dd></div>
-          <div><dt class="inline text-zinc-500">Latest player:</dt> <dd class="inline"><%= [ @latest_now_playing_sample.player_title, @latest_now_playing_sample.player_platform ].compact_blank.join(" · ").presence || "Unknown" %></dd></div>
+          <div><dt class="inline text-zinc-500">Samples:</dt> <dd class="inline"><%= number_with_delimiter(@activity_sample_count) %></dd></div>
+          <div><dt class="inline text-zinc-500">Latest:</dt> <dd class="inline"><%= l(@latest_activity_sample.sampled_at, format: :long) %></dd></div>
+          <div><dt class="inline text-zinc-500">Concurrent streams:</dt> <dd class="inline"><%= number_with_delimiter(@latest_activity_sample.total_sessions) %></dd></div>
+          <div><dt class="inline text-zinc-500">Transcodes:</dt> <dd class="inline"><%= number_with_delimiter(@latest_activity_sample.transcode_sessions) %></dd></div>
         </dl>
       <% else %>
-        <p class="mt-3 text-sm text-zinc-400">No live playback samples have been stored yet.</p>
+        <p class="mt-3 text-sm text-zinc-400">No activity samples have been stored yet. Collect activity from Maintenance or enable the sampler.</p>
       <% end %>
     </div>
   </section>

@@ -106,13 +106,9 @@ docker compose --profile sampling stop
 docker compose up -d
 ```
 
-The optional current-session sampler records device/IP information that Plex exposes for future sessions. Enable it only if you want those records:
+Activity graphs collect automatically through the web container's Solid Queue worker, once per minute. The records contain aggregate concurrency, playback-state and delivery-mode counts, and estimated bandwidth reported by Plex; they do not contain usernames, media titles, devices, or IP addresses. Graphs start with new observations, and failed polls leave gaps. Retention defaults to 90 days, about 129,600 observations per configured server.
 
-```sh
-docker compose up -d now_playing_sampler
-```
-
-The sampler belongs to the `sampling` Compose profile, so a normal `docker compose up -d` does not start it. An explicitly started sampler is updated by subsequent `scripts/deploy` runs. To stop sampling, run `docker compose stop now_playing_sampler`; start it explicitly again after stopping the entire stack. Sample retention defaults to 90 days. See [Docker's profile behavior](https://docs.docker.com/compose/how-tos/profiles/) for details.
+To disable collection, set `PLEX_ACTIVITY_ENABLED=false` in `.env.production` and recreate the web container. Adjust retention with `PLEX_ACTIVITY_RETENTION_DAYS`. An upgrade through `scripts/deploy` stops and removes an old `now_playing_sampler` container after the new web service passes health checks. Existing detailed samples stay in PostgreSQL and remain readable; the deprecated `sampling` Compose profile is only a migration compatibility placeholder.
 
 PostgreSQL data and application storage live in named Docker volumes. Keep the installation's `COMPOSE_PROJECT_NAME` unchanged, and do not use `docker compose down -v` as an update or troubleshooting step: it deletes those volumes. See [deployment and operations](deploy.md) for backups, restoration, and production maintenance.
 
@@ -185,7 +181,7 @@ docker run --detach \
   gigaadmin:local
 ```
 
-The normal image command runs `db:prepare` before starting Rails/Puma through Thruster. PostgreSQL must already be available. `SOLID_QUEUE_IN_PUMA=true` runs the worker for queued Maintenance actions inside the web container.
+The normal image command runs `db:prepare` before starting Rails/Puma through Thruster. PostgreSQL must already be available. `SOLID_QUEUE_IN_PUMA=true` runs the worker and recurring scheduler for Maintenance actions and automatic minute-by-minute activity collection inside the web container. No separate sampling container or host timer is needed.
 
 Check startup and readiness:
 
@@ -200,7 +196,7 @@ For HTTPS, change `GIGAADMIN_SSL_MODE` to the default `proxy` mode for an existi
 
 ### Refreshes and maintenance
 
-Plain `docker run` does not start Compose's daily refresh or optional live-session sampler. Import history manually with:
+Plain `docker run` does not start Compose's daily history refresh service. Activity graphs collect automatically with `SOLID_QUEUE_IN_PUMA=true`. Import playback history manually with:
 
 ```sh
 docker exec gigaadmin ./bin/rails plex:refresh
@@ -212,6 +208,6 @@ To automate incremental refreshes, schedule this command with your host's schedu
 docker exec --env PLEX_HISTORY_DAYS=1 gigaadmin ./bin/rails plex:refresh
 ```
 
-Avoid overlapping refresh runs. The manual refresh defaults to 730 days; the scheduled example limits the history window to one day. Live-session sampling remains disabled unless you arrange it separately.
+Avoid overlapping refresh runs. The manual refresh defaults to 730 days; the scheduled example limits the history window to one day. History imports and the automatic activity observations serve different purposes: imported playback events cannot reconstruct past concurrent sessions or bandwidth.
 
 `scripts/deploy` and the Compose commands elsewhere in this guide do not manage this container. For updates or changed environment values, build the new image and recreate the application container with the same database configuration and `gigaadmin_storage` volume. Back up all four PostgreSQL databases, the storage volume, and `.env.production` before upgrades; preserve that state when replacing the container. This manual path has not been exercised by the repository's Docker Compose installation smoke test.

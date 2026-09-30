@@ -14,11 +14,16 @@
       <p class="mt-2 text-sm leading-6 text-amber-50/80"><%= @configuration_error || @plex_error %></p>
     </section>
   <% else %>
+    <%= render "live_activity" %>
+    <div>
+      <h2 class="text-xl font-semibold text-white">Watch History</h2>
+      <p class="mt-1 text-sm text-zinc-400">Top 10 movies, shows, and users by plays in your imported Plex history. Shows are ranked by episode plays.</p>
+    </div>
     <nav class="flex flex-wrap gap-2" aria-label="Stats period">
       <% @stats_period_options.each do |period, label| %>
         <% active = period == @stats_period %>
         <%= link_to label,
-          stats_path(period: period),
+          stats_path(period: period, activity_period: @live_activity.period),
           class: [
             "inline-flex cursor-pointer items-center justify-center rounded-md border px-4 py-2 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-cyan-200 focus:ring-offset-2 focus:ring-offset-zinc-950",
             active ? "border-cyan-300 bg-cyan-300 text-zinc-950" : "border-zinc-700 text-zinc-200 hover:border-zinc-500 hover:bg-zinc-900 hover:text-white"
@@ -27,9 +32,11 @@
       <% end %>
     </nav>
 
+    <p class="text-xs leading-5 text-zinc-400">Periods are rolling windows: 24 hours, 7, 30, 90, 180, or 365 days. A title counts once per user per calendar day. Plays with progress data require at least 90% completion; history without progress data is included.</p>
+
     <section class="grid gap-3 sm:grid-cols-3">
       <div class="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
-        <p class="text-xs font-medium uppercase tracking-wide text-zinc-500">Completed Plays</p>
+        <p class="text-xs font-medium uppercase tracking-wide text-zinc-500">Counted Plays</p>
         <p class="mt-2 text-lg font-semibold text-white"><%= number_with_delimiter(@period_summary[:completed_plays]) %></p>
         <p class="mt-1 text-xs text-zinc-500"><%= @stats_period_label %></p>
       </div>
@@ -44,6 +51,29 @@
     </section>
 
     <section class="grid gap-4 xl:grid-cols-2">
+      <% [ [ "top-movies", "Top 10 Movies", @top_movies, @max_movie_plays ], [ "top-shows", "Top 10 Shows", @top_shows, @max_show_plays ] ].each do |identifier, heading, rankings, maximum| %>
+        <section id="<%= identifier %>" class="rounded-lg border border-zinc-800 bg-zinc-950 p-5" aria-labelledby="<%= identifier %>-title">
+          <h2 id="<%= identifier %>-title" class="text-lg font-semibold text-white"><%= heading %></h2>
+          <ol class="mt-4 grid gap-3">
+            <% rankings.each_with_index do |stat, index| %>
+              <li class="rounded-md border border-zinc-800 bg-zinc-900 p-3">
+                <div class="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3 text-sm">
+                  <span class="min-w-0 truncate font-medium text-white" title="<%= stat[:label] %>"><span class="text-zinc-400"><%= index + 1 %>.</span> <%= stat[:label] %></span>
+                  <span class="shrink-0 text-zinc-400"><%= number_with_delimiter(stat[:plays]) %> plays</span>
+                </div>
+                <div class="mt-2 h-2 overflow-hidden rounded-full bg-zinc-950" aria-hidden="true">
+                  <div class="h-full rounded-full bg-cyan-300" style="width: <%= percentage_width(stat[:plays], maximum) %>%"></div>
+                </div>
+                <p class="mt-1 text-xs text-zinc-500"><%= pluralize(stat[:users], "user") %></p>
+              </li>
+            <% end %>
+          </ol>
+          <% if rankings.empty? %>
+            <p class="mt-4 text-sm text-zinc-400">No <%= identifier == "top-movies" ? "movie" : "show" %> history in this period.</p>
+          <% end %>
+        </section>
+      <% end %>
+
       <div class="rounded-lg border border-zinc-800 bg-zinc-950 p-5">
         <h2 class="text-lg font-semibold text-white">Library Activity</h2>
         <div class="mt-4 grid gap-3">
@@ -65,8 +95,8 @@
         </div>
       </div>
 
-      <div class="rounded-lg border border-zinc-800 bg-zinc-950 p-5">
-        <h2 class="text-lg font-semibold text-white">Top Users</h2>
+      <section id="top-users" class="rounded-lg border border-zinc-800 bg-zinc-950 p-5" aria-labelledby="top-users-title">
+        <h2 id="top-users-title" class="text-lg font-semibold text-white">Top 10 Users</h2>
         <div class="mt-4 grid gap-3">
           <% @top_users.each do |stat| %>
             <%= link_to user_path(stat[:account_id]), class: "block rounded-md border border-zinc-800 bg-zinc-900 p-3 transition hover:border-zinc-500 hover:bg-zinc-900/80" do %>
@@ -84,7 +114,7 @@
             <p class="text-sm text-zinc-400">No user history yet.</p>
           <% end %>
         </div>
-      </div>
+      </section>
 
       <div class="rounded-lg border border-zinc-800 bg-zinc-950 p-5">
         <h2 class="text-lg font-semibold text-white">Media Types</h2>

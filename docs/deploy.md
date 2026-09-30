@@ -158,8 +158,6 @@ Recreate the app services to load the changed environment:
 
 ```sh
 docker compose up -d --force-recreate web daily_refresh
-# Only if you previously enabled sampling:
-docker compose up -d --force-recreate now_playing_sampler
 ```
 
 If you use Google sign-in, register the new callback URL in your Google OAuth
@@ -209,8 +207,10 @@ docker image tag gigaadmin:production gigaadmin:pre-upgrade
 The deploy script requires clean tracked files, pulls with `git pull --ff-only`,
 validates Compose without printing its expanded secrets, builds the image,
 prepares all databases, starts the app, and checks container health and `/up`
-through the published host port. It also updates a sampler that was already
-running. It recreates containers, so brief interruptions are possible.
+through the published host port. Once those checks pass, it stops and removes a
+legacy `now_playing_sampler` container if one exists. The new activity collector
+runs inside the app's job worker. Existing detailed samples are preserved in the
+database. The script recreates containers, so brief interruptions are possible.
 
 A checkout lock prevents overlapping deployments. Remove `tmp/deploy.lock`
 after an interrupted deployment only after confirming no deploy process is still
@@ -245,17 +245,17 @@ services:
     image: gigaadmin:pre-upgrade
   daily_refresh:
     image: gigaadmin:pre-upgrade
-  now_playing_sampler:
-    image: gigaadmin:pre-upgrade
 YAML
 docker compose -f compose.yml -f tmp/rollback.yml up -d --no-build --no-deps web daily_refresh
-# Only if sampling was enabled:
-docker compose -f compose.yml -f tmp/rollback.yml up -d --no-build --no-deps now_playing_sampler
 ```
 
 Repeat the health and application checks above. Keep the recorded revision and
 backup until recovery is verified. A later normal deployment uses `compose.yml`
 and replaces this override's running images with the newly built image.
+An image from before the activity-graph feature does not collect the new
+aggregate observations. This rollback does not restart the retired detailed
+sampler; restore that older release's deployment configuration separately only
+if you explicitly need its previous sampling behavior.
 
 ## Backups
 
@@ -302,11 +302,8 @@ printf 'Backup saved to %s\n' "$backup_dir"
 BASH
 ```
 
-If `running-services.txt` lists the sampler, start it again:
-
-```sh
-docker compose up -d now_playing_sampler
-```
+Starting `web` also resumes automatic aggregate activity collection. Do not
+restart the retired detailed sampler if it appears in an older service list.
 
 The archive-list checks verify readable dump catalogs; they are not a restore
 test. Periodically restore into an isolated installation and check login,
@@ -383,7 +380,8 @@ before validation may migrate the restored databases.
 docker compose up -d web
 ```
 
-After validation, start `daily_refresh` and, if desired, the sampler. Restored
+After validation, start `daily_refresh`. Activity collection starts with the web
+worker; use `PLEX_ACTIVITY_ENABLED=false` in an isolated recovery drill. Restored
 queue state may resume jobs that were pending at backup time. A recovery drill
 should remain private; do not leave duplicate schedulers running afterward.
 
@@ -415,8 +413,6 @@ The helper scripts provide the same operations:
 ```sh
 PLEX_HISTORY_DAYS=730 ./scripts/backfill-history
 ./scripts/resume-backfill 179
-./scripts/sample-now-playing
-./scripts/prune-samples
 ```
 
 The backfill/resume helpers default to **all history** unless you override their
@@ -428,20 +424,63 @@ The daily service runs at `PLEX_DAILY_REFRESH_AT` in the container's `TZ`.
 Defaults are `04:15` and `Etc/UTC`; this is not automatically your host's timezone.
 Change those values in `.env.production` and recreate the services to apply them.
 
-## Optional live-session sampling
+## Automatic activity collection
 
-The `now_playing_sampler` service belongs to the `sampling` profile and is not
-started by an ordinary first `docker compose up -d`. Start it explicitly:
+The production Solid Queue scheduler polls Plex's current-session endpoint once
+per minute. Compose runs the scheduler and worker inside `web`; plain Docker
+does the same with `SOLID_QUEUE_IN_PUMA=true`. A separate `bin/jobs` deployment
+must include its recurring scheduler. No shell loop or additional sampler
+container is needed.
+
+Each observation stores aggregate concurrency, playing/paused counts,
+transcode/direct-play/direct-stream/unknown counts, and Plex's estimated
+bandwidth in kilobits per second. These are capacity-planning observations,
+not measurements of network throughput or a billable transfer total. Samples
+contain no user names, IP addresses, titles, or device/session identifiers.
+Idle observations record zero sessions; failed polls leave gaps. Short sessions
+between observations may be missed.
+
+Graphs start when collection starts after installation or upgrade. Imported
+playback history and older detailed samples cannot reconstruct past concurrency
+or bandwidth. The daily retention job removes aggregate observations older than
+`PLEX_ACTIVITY_RETENTION_DAYS`, default **90 days** (valid range 1–3,650). Invalid
+retention values are rejected rather than applied. At one
+observation per minute, 90 days is approximately **129,600 rows per server**.
+Storage grows with retention, not with the number of users watching at once.
+
+Set `PLEX_ACTIVITY_ENABLED=false` and recreate the app container to disable
+collection. This setting does not erase collected activity; the separate
+retention job still applies. The retired `PLEX_NOW_PLAYING_SAMPLE_INTERVAL` and
+`PLEX_NOW_PLAYING_RETENTION_DAYS` settings do not govern the new collector.
+Existing detailed observations stay readable on user profiles, and the upgrade
+does not automatically delete them.
+
+For an existing Compose deployment, `scripts/deploy` retires the old sampler
+only after the replacement web service passes both health checks. The retained
+`sampling` profile is a no-op compatibility definition so removal can target
+only that container. If you upgrade manually, first verify the new app and
+worker, then retire the old container without deleting volumes:
 
 ```sh
-docker compose up -d now_playing_sampler
+docker compose --profile sampling stop now_playing_sampler
+docker compose --profile sampling rm -f now_playing_sampler
 ```
 
-It records live player/IP details when Plex provides them, every
-`PLEX_NOW_PLAYING_SAMPLE_INTERVAL` seconds, and prunes samples older than
-`PLEX_NOW_PLAYING_RETENTION_DAYS`. Defaults are 60 seconds and 90 days. Historical
-imports cannot reconstruct missing old player/IP details. Stop the sampler with
-`docker compose stop now_playing_sampler`; existing samples remain in the database.
+Check **Stats**, **Status**, and **Maintenance** for observations and collection
+status. If graphs stop advancing, inspect `web` logs, confirm Plex's direct URL
+and token work, and check that Solid Queue's worker and scheduler are running.
+The live **Now** page can work even when the background collector is stopped.
+
+To collect one observation or apply aggregate retention immediately:
+
+```sh
+./scripts/sample-now-playing
+./scripts/prune-samples
+```
+
+These helpers retain the existing `plex:sample_now_playing` and
+`plex:prune_now_playing_samples` task names for compatibility, but now operate on
+aggregate activity. They do not collect or delete legacy detailed session rows.
 
 ## Useful commands
 
@@ -451,7 +490,7 @@ imports cannot reconstruct missing old player/IP details. Stop the sampler with
 docker compose ps
 docker compose exec web ./bin/rails console
 docker compose logs --tail=100 daily_refresh
-docker compose logs --tail=100 now_playing_sampler
+docker compose logs --tail=100 web
 ```
 
 Treat logs, exports, and console output as potentially sensitive. Share only

@@ -52,7 +52,7 @@ bin/dev
 
 Development uses Rails' in-process `AsyncAdapter` for jobs, so the Maintenance refresh runs while the web process is running. **No separate `bin/jobs` process is needed for the default development setup.** These jobs are not durable across web-process restarts.
 
-Production uses Solid Queue with a separate queue database; Compose runs its supervisor inside Puma. `bin/jobs` is the Solid Queue worker entrypoint for a deliberately configured separate worker, not a prerequisite for native development. Daily refresh and optional session sampling are separate Compose services and do not start with `bin/dev`.
+Production uses Solid Queue with a separate queue database; Compose runs its supervisor, worker, and recurring scheduler inside Puma. Aggregate activity is sampled every minute and pruned daily through that scheduler. `bin/jobs` is the Solid Queue worker entrypoint for a deliberately configured separate worker, not a prerequisite for native development. The daily history refresh remains a separate Compose service. Neither recurring schedule starts with `bin/dev`; for a single development activity observation, run `bin/rails plex:sample_now_playing` explicitly. This compatibility task name now records aggregate activity, not the old detailed session rows.
 
 ## Work with Plex data
 
@@ -68,7 +68,7 @@ The task defaults to a 730-day history window and runs in the terminal so a leng
 PLEX_HISTORY_DAYS=7 bin/rails plex:refresh
 ```
 
-The task saves progress in PostgreSQL. Use the [operations guide](deploy.md) for full-history backfills, resuming a failed page, current-session sampling, and retention behavior.
+The task saves progress in PostgreSQL. Use the [operations guide](deploy.md) for full-history backfills, resuming a failed page, aggregate activity collection, and retention behavior.
 
 ## Checks
 
@@ -100,7 +100,8 @@ RAILS_ENV=production SECRET_KEY_BASE_DUMMY=1 BUNDLE_WITHOUT=development:test \
 | --- | --- |
 | `app/controllers/` and `app/views/` | Admin pages, authorization, forms, and exports |
 | `app/services/plex/` | Plex HTTP client, sharing snapshots, refresh progress, and formatting |
-| `app/models/` | Cached snapshots, stream history, current-session samples, notes, and audit records |
+| `app/models/` | Cached snapshots, stream history, aggregate activity, retained legacy samples, notes, and audit records |
+| `app/jobs/` and `config/recurring.yml` | Background refreshes and recurring activity collection/retention |
 | `app/javascript/controllers/` | Stimulus interactions and polling |
 | `lib/tasks/plex.rake` | Refresh, backfill, sample, and pruning tasks |
 | `docker/` and `compose.yml` | Production service startup and schedules |

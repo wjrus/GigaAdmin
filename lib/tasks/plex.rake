@@ -165,20 +165,16 @@ namespace :plex do
     raise
   end
 
-  desc "Record one sample of current Plex playback sessions"
+  desc "Collect aggregate Plex activity for the current minute"
   task sample_now_playing: :environment do
-    machine_identifier = ENV["PLEX_MACHINE_IDENTIFIER"].presence ||
-      raise(Plex::ConfigurationError, "Missing PLEX_MACHINE_IDENTIFIER in .env")
-    sessions = Plex::Client.from_env.playback_sessions
-    saved_count = PlexNowPlayingSample.record_sessions!(machine_identifier, sessions)
-    puts "Now playing sessions: #{sessions.size}"
-    puts "Samples saved: #{saved_count}"
+    sample = Plex::ActivityCollector.call
+    puts "Activity at #{sample.sampled_at}: #{sample.total_sessions} streams, #{sample.transcode_sessions} transcodes"
   end
 
-  desc "Prune old now playing samples"
+  desc "Prune aggregate activity history (legacy session details are preserved)"
   task prune_now_playing_samples: :environment do
-    deleted_count = PlexNowPlayingSample.prune!
-    puts "Pruned #{deleted_count.to_fs(:delimited)} now playing samples older than #{PlexNowPlayingSample.retention_days} days"
+    deleted_count = PlexActivitySample.prune!
+    puts "Pruned #{deleted_count.to_fs(:delimited)} activity polls older than #{PlexActivitySample.retention_days} days"
   end
 
   def history_max_pages

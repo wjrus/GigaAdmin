@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_29_000200) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_29_000300) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -35,6 +35,24 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_29_000200) do
     t.boolean "super_admin", default: false, null: false
     t.datetime "updated_at", null: false
     t.index ["email"], name: "index_admin_users_on_email", unique: true
+  end
+
+  create_table "plex_activity_samples", force: :cascade do |t|
+    t.bigint "bandwidth_kbps", default: 0, null: false
+    t.integer "bandwidth_sessions", default: 0, null: false
+    t.datetime "created_at", null: false
+    t.integer "direct_play_sessions", default: 0, null: false
+    t.integer "direct_stream_sessions", default: 0, null: false
+    t.string "machine_identifier", null: false
+    t.integer "paused_sessions", default: 0, null: false
+    t.integer "playing_sessions", default: 0, null: false
+    t.datetime "sampled_at", null: false
+    t.integer "total_sessions", default: 0, null: false
+    t.integer "transcode_sessions", default: 0, null: false
+    t.integer "unknown_sessions", default: 0, null: false
+    t.datetime "updated_at", null: false
+    t.index ["machine_identifier", "sampled_at"], name: "idx_on_machine_identifier_sampled_at_4687623faf", unique: true
+    t.index ["sampled_at"], name: "index_plex_activity_samples_on_sampled_at"
   end
 
   create_table "plex_now_playing_samples", force: :cascade do |t|

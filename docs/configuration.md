@@ -73,9 +73,6 @@ services:
   daily_refresh:
     extra_hosts:
       - "host.docker.internal:host-gateway"
-  now_playing_sampler:
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
 ```
 
 Then use `http://host.docker.internal:32400`. This requires Plex to listen on an interface reachable from Docker, and the host firewall must permit it. The mapping does not expose a service bound only to the host's loopback interface. See [Docker's host-gateway documentation](https://docs.docker.com/reference/cli/dockerd/#configure-host-gateway-ip).
@@ -109,6 +106,10 @@ The redirect URI must match the browser-visible scheme, hostname, port, and path
 GigaAdmin requests only `openid`, `email`, and `profile`. Google's **Testing** status ordinarily limits an application to its listed test users, but Google exempts these basic sign-in scopes from that restriction and the seven-day authorization expiry. You may list your intended administrators as test users, but **always configure `ADMIN_USERS`**: Google's testing audience is not GigaAdmin's access control. Workspace policies can still restrict sign-in. See [Google's audience rules](https://support.google.com/cloud/answer/15549945?hl=en).
 
 The Google allowlist is checked on every authenticated request. Removing an email takes effect for existing sessions after the changed environment is loaded. These administrator emails need not match the Plex owner's email.
+
+Use `ADMIN_USERS` for administrative authorization. The obsolete singular
+`ADMIN_USER` spelling is not accepted; rename it before upgrading if an older
+installation still uses it.
 
 ## Choose HTTPS handling
 
@@ -175,7 +176,7 @@ The standard Docker deployment uses `SECRET_KEY_BASE`; it does **not** require t
 
 The Docker image uses UTC unless you set `TZ`; `04:15` is therefore **04:15 UTC**, not automatically the Docker host's local time. Recreate the services after changing timezone or schedule settings.
 
-### History, sampling, and display
+### History, activity graphs, and display
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -187,13 +188,25 @@ The Docker image uses UTC unless you set `TZ`; `04:15` is therefore **04:15 UTC*
 | `PLEX_HISTORY_DAYS` | `730` in examples and the refresh task | Lookback window in days; use `all` for full available history |
 | `PLEX_HISTORY_START_PAGE` | `1` | Resume page for `plex:backfill_history` |
 | `PLEX_HISTORY_RETRIES` | `8` | Retries per failed backfill page; clamped to 0–20 |
-| `PLEX_NOW_PLAYING_SAMPLE_INTERVAL` | `60` | Seconds the optional sampler waits between completed samples |
-| `PLEX_NOW_PLAYING_RETENTION_DAYS` | `90` | Sample retention; clamped to 1–3,650 days |
+| `PLEX_ACTIVITY_ENABLED` | `true` | Collect aggregate activity every minute through the production Solid Queue scheduler; set `false` to disable |
+| `PLEX_ACTIVITY_RETENTION_DAYS` | `90` | Aggregate activity retention, 1–3,650 days; invalid values are rejected, pruned daily |
 | `PLEX_OWNER_ACCOUNT_ID` | Unset | Identifies your owner account in locally stored history |
 | `PLEX_OWNER_NAME`, `PLEX_OWNER_USERNAME`, `PLEX_OWNER_EMAIL` | Unset | Optional labels for that owner account |
 | `ADMIN_EMAIL` | `rake` | Audit label for a command-line refresh; does not grant sign-in access |
 
 The owner is not normally returned as a shared-library user. GigaAdmin also displays accounts found in local playback history; the `PLEX_OWNER_*` settings give the owner's history a useful label.
+
+The old `PLEX_NOW_PLAYING_SAMPLE_INTERVAL` setting and separate sampler container
+are retired. `PLEX_NOW_PLAYING_RETENTION_DAYS` does not control new aggregate
+activity. Existing detailed samples are preserved rather than pruned as part of
+the upgrade. See [activity collection](deploy.md#automatic-activity-collection)
+for migration, storage, and troubleshooting details.
+
+Production needs a running Solid Queue worker **and recurring scheduler** for
+automatic activity collection. Compose enables these inside Puma. With plain
+`docker run`, set `SOLID_QUEUE_IN_PUMA=true`, as shown in the Docker guide. If you
+run `bin/jobs` separately, keep its recurring scheduler enabled. Native
+development does not schedule periodic observations automatically.
 
 For custom database arrangements, production accepts `PLEX_DATABASE_USERNAME` (default `plex`), `POSTGRES_HOST` (default `localhost`), and `POSTGRES_PORT` (default `5432`). Compose supplies the database host and user automatically. The existing `plex_*` database names are intentional and do not require renaming.
 
@@ -207,4 +220,4 @@ Rails request logging remains enabled and filters token/password parameters.
 Keep `THRUSTER_LOG_REQUESTS=false` and configure upstream proxy logs to omit
 query strings as shown in the deployment guide.
 
-The database contains user emails, administrative notes, access-change records, and playback history. Current-session samples can also contain device names, IP addresses, and session identifiers. Treat database backups and CSV exports as sensitive. Use HTTPS for access beyond localhost, and grant administrator access only to people trusted to change Plex sharing.
+The database contains user emails, administrative notes, access-change records, and playback history. Legacy current-session samples can contain device names, IP addresses, and session identifiers; new aggregate activity observations do not. Treat database backups and CSV exports as sensitive. Use HTTPS for access beyond localhost, and grant administrator access only to people trusted to change Plex sharing.

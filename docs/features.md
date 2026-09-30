@@ -55,11 +55,23 @@ playback state, and player or IP details when available. It requests another
 update 10 seconds after the preceding request finishes. Polling pauses in hidden
 tabs and stops when you navigate away.
 
-The optional now-playing sampler saves live session details for later reference.
-It captures future observations; it cannot recover player or IP details absent
-from old Plex history. Samples default to a 60-second interval and 90-day
-retention. The sampler prunes expired samples automatically, and Maintenance
-also offers manual sampling and pruning.
+GigaAdmin's production job worker samples current sessions once per minute for
+the activity graphs in **Stats**. It stores aggregate stream, playback-state,
+and delivery-mode counts, plus the sum of the bandwidth estimates Plex reports.
+These samples contain no usernames, IP addresses, titles, or device details.
+No separate sampler container is needed.
+
+Activity history starts when this version runs; old playback history and detailed
+samples cannot reconstruct past concurrency or bandwidth. Short sessions between
+observations may be missed. Missing or failed observations are gaps, not zero
+usage. Plex's bandwidth figures are estimates, not measured network throughput
+or monthly transfer totals.
+
+Activity samples are kept for 90 days by default and pruned daily. Set
+`PLEX_ACTIVITY_ENABLED=false` to stop collection, or change
+`PLEX_ACTIVITY_RETENTION_DAYS` to adjust retention. Existing detailed samples
+from older versions remain readable on user profiles; the upgrade does not
+delete them or continue collecting their personal details.
 
 ## History and statistics
 
@@ -69,10 +81,12 @@ profiles show their history, activity charts, and top series and movies. Audio
 history and libraries absent from the current snapshot are excluded from these
 statistics.
 
-The period selector offers **7 days**, **30 days**, **Past year**, and **All time**.
-Short periods use daily activity buckets; longer periods use monthly buckets.
-All time means all history imported into GigaAdmin, which may be a smaller window
-than Plex retains.
+Stats ranks the **top 10 movies**, **top 10 TV shows**, and **top 10 users** by
+plays. TV rankings combine episodes by show. Choose rolling **24 hours**,
+**7 days**, **30 days**, **90 days**, **180 days**, **Past year**, or **All time**.
+User profiles have their own **7 days**, **30 days**, **Past year**, and
+**All time** period selector. All time means all history imported into GigaAdmin,
+which may be a smaller window than Plex retains.
 
 The app's “completed plays” count includes events with at least 90% played, plus
 events where Plex supplied no usable completion data. It counts the same title
@@ -82,7 +96,8 @@ session. The selected time period is applied before this deduplication.
 
 User-list CSV exports follow the current user filters. A user's history export
 includes all rows matching its history filters, beyond the currently displayed
-page. CSV values escape spreadsheet formula prefixes. Exports may still contain
+page. It streams in bounded batches without rebuilding the user's dashboard
+statistics. CSV values escape spreadsheet formula prefixes. Exports may still contain
 sensitive watch history, device names, or IP addresses, so share them carefully.
 
 ## Refreshing data
@@ -105,7 +120,7 @@ re-reading them updates events without duplicating them. Resume from the failed
 page shown in the output.
 
 **Status** shows the app revision, database connection, snapshot age, refresh
-state, history coverage, and recent live samples. Check it after setup or when
+state, history coverage, and activity collection health. Check it after setup or when
 data looks stale. Its next scheduled time reflects the configured daily refresh
 time; the scheduler service must also be running.
 
@@ -113,7 +128,7 @@ time; the scheduler service must also be running.
 
 With no Google credentials configured, GigaAdmin uses local admin accounts. The
 first visitor creates the initial **super administrator**, so complete setup
-privately before exposing the app. Only the super administrator can invite or
+privately before exposing the app. Only super administrators can invite or
 remove other GigaAdmin administrators. Invited accounts can administer Plex
 sharing and change their own password, but cannot manage GigaAdmin accounts.
 Passwords are stored as bcrypt hashes, and password changes invalidate existing
@@ -143,8 +158,9 @@ The Google allowlist is checked on every authenticated request. After changing
 environment configuration, recreate the affected containers to load it; removed
 administrators lose access on their next request.
 
-GigaAdmin stores sharing snapshots, playback events, live-session samples, admin
-notes, and an audit log in its own PostgreSQL database. These records may include
-account details, watch history, device names, and IP addresses. Protect the
+GigaAdmin stores sharing snapshots, playback events, aggregate activity samples,
+admin notes, and an audit log in its own PostgreSQL database. Playback history
+and retained legacy samples may include account details, watch history, device
+names, and IP addresses. Protect the
 database and its backups as administrative data. The app connects through Plex
 APIs and does not mount or edit Plex's database or media files.

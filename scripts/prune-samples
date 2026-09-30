@@ -9,12 +9,10 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
 Usage:
   ./scripts/prune-samples
 
-Environment overrides:
-  PLEX_NOW_PLAYING_RETENTION_DAYS=90
-
-Prunes old Now Playing samples inside the Compose web container.
+Prunes aggregate activity history in the running web container using its
+PLEX_ACTIVITY_RETENTION_DAYS setting (default 90). Legacy details are preserved.
 USAGE
   exit 0
 fi
 
-docker compose run --rm web ./bin/rails plex:prune_now_playing_samples
+docker compose exec -T web ./bin/rails plex:prune_now_playing_samples

@@ -10,33 +10,39 @@ class MaintenanceController < ApplicationController
   end
 
   def sample_now_playing
-    machine_identifier = required_machine_identifier
-    sessions = Plex::Client.from_env.playback_sessions
-    saved_count = PlexNowPlayingSample.record_sessions!(machine_identifier, sessions)
+    sample = Plex::ActivityCollector.call
 
-    redirect_to maintenance_path, notice: "Sampled #{helpers.pluralize(saved_count, "active stream")}."
-  rescue Plex::ConfigurationError, Plex::Client::Error, ActiveRecord::ActiveRecordError => error
+    redirect_to maintenance_path, notice: "Recorded activity: #{helpers.pluralize(sample.total_sessions, "stream")} (one poll per minute)."
+  rescue Plex::ConfigurationError, Plex::Client::Error => error
     redirect_to maintenance_path, alert: error.message
+  rescue ActiveRecord::ActiveRecordError => error
+    Rails.logger.error("[plex.activity] collection failed (#{error.class})")
+    redirect_to maintenance_path, alert: "Activity could not be saved. Check the application logs."
   end
 
   def prune_now_playing_samples
-    deleted_count = PlexNowPlayingSample.prune!
+    deleted_count = PlexActivitySample.prune!
 
-    redirect_to maintenance_path, notice: "Pruned #{helpers.pluralize(deleted_count, "now playing sample")}."
-  rescue ActiveRecord::ActiveRecordError => error
+    redirect_to maintenance_path, notice: "Pruned #{helpers.pluralize(deleted_count, "activity poll")}."
+  rescue Plex::ConfigurationError => error
     redirect_to maintenance_path, alert: error.message
+  rescue ActiveRecord::ActiveRecordError => error
+    Rails.logger.error("[plex.activity] pruning failed (#{error.class})")
+    redirect_to maintenance_path, alert: "Activity history could not be pruned. Check the application logs."
   end
 
   private
 
   def load_maintenance
     @machine_identifier = ENV["PLEX_MACHINE_IDENTIFIER"].presence
-    @now_playing_sample_count = sample_scope.count
-    @latest_now_playing_sample = sample_scope.recent.first
-    @oldest_now_playing_sample = sample_scope.order(:sampled_at).first
-    @retention_days = PlexNowPlayingSample.retention_days
+    @activity_sample_count = sample_scope.count
+    @latest_activity_sample = sample_scope.recent.first
+    @oldest_activity_sample = sample_scope.order(:sampled_at).first
     @suppressed_user_count = PlexUserNote.where(suppressed: true).count
     @history_summary = @machine_identifier ? PlexStreamEvent.history_summary(@machine_identifier) : nil
+    @activity_retention_days = PlexActivitySample.retention_days
+  rescue Plex::ConfigurationError => error
+    @activity_configuration_error = error.message
   end
 
   def load_refresh
@@ -49,17 +55,12 @@ class MaintenanceController < ApplicationController
   end
 
   def sample_scope
-    return PlexNowPlayingSample.none if @machine_identifier.blank?
+    return PlexActivitySample.none if @machine_identifier.blank?
 
-    PlexNowPlayingSample.where(machine_identifier: @machine_identifier)
+    PlexActivitySample.where(machine_identifier: @machine_identifier)
   end
 
   def refresh_scope
     @machine_identifier.present? ? RefreshRun.where(machine_identifier: @machine_identifier) : RefreshRun.all
-  end
-
-  def required_machine_identifier
-    ENV["PLEX_MACHINE_IDENTIFIER"].presence ||
-      raise(Plex::ConfigurationError, "Missing PLEX_MACHINE_IDENTIFIER")
   end
 end
