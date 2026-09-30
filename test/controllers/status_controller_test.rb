@@ -44,7 +44,7 @@ class StatusControllerTest < ActionDispatch::IntegrationTest
     )
     ENV["PLEX_MACHINE_IDENTIFIER"] = "machine-one"
 
-    get status_path
+    get_content status_path
 
     assert_response :success
     assert_select "h1", "Status"
@@ -60,7 +60,7 @@ class StatusControllerTest < ActionDispatch::IntegrationTest
   test "renders revision from environment" do
     ENV["APP_REVISION"] = "abc1234"
 
-    get status_path
+    get_content status_path
 
     assert_response :success
     assert_select "p", text: "abc1234"

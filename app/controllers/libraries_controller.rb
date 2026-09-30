@@ -1,4 +1,6 @@
 class LibrariesController < ApplicationController
+  defer_page :show, title: "Library"
+
   def show
     @machine_identifier = required_machine_identifier
     @library_title = params[:library_title].to_s
@@ -7,12 +9,14 @@ class LibrariesController < ApplicationController
     @library = library_from_snapshot
     @shared_users = shared_users
     @events = completed_event_scope
-    @event_count = @events.count
-    @unique_user_count = @events.distinct.count(:account_id)
-    @latest_event = @events.recent.first
-    @type_stats = type_stats
+    @usage_statistics = Plex::UsageStatistics.new(scope: @events, bucket: "month", sections: %i[summary types users recent]).call
+    @event_count = @usage_statistics[:summary][:completed_plays]
+    @unique_user_count = @usage_statistics[:summary][:users]
+    @type_stats = @usage_statistics[:types].map { |stat| stat.merge(label: stat[:identifier]) }
     @top_users = top_users
-    @recent_events = @events.recent.limit(50)
+    recent_ids = @usage_statistics[:recent].map { |stat| stat[:identifier] }
+    @recent_events = PlexStreamEvent.where(id: recent_ids).recent.select(:id, :account_id, :viewed_at, :title, :full_title, :media_type).to_a
+    @latest_event = @recent_events.first
     @max_type_plays = @type_stats.map { |stat| stat[:plays] }.max.to_i
     @max_user_plays = @top_users.map { |stat| stat[:plays] }.max.to_i
   rescue Plex::ConfigurationError => error
@@ -33,29 +37,17 @@ class LibrariesController < ApplicationController
     end
   end
 
-  def type_stats
-    @events
-      .where.not(media_type: [ nil, "" ])
-      .group(:media_type)
-      .order(Arel.sql("COUNT(*) DESC"))
-      .pluck(:media_type, Arel.sql("COUNT(*)"))
-      .map { |media_type, plays| { label: media_type, plays: plays } }
-  end
-
   def top_users
     labels = user_labels
-    @events
-      .group(:account_id)
-      .order(Arel.sql("COUNT(*) DESC"))
-      .limit(12)
-      .pluck(:account_id, Arel.sql("COUNT(*)"), Arel.sql("MAX(viewed_at)"))
-      .map do |account_id, plays, latest|
-        { account_id: account_id, label: labels.fetch(account_id.to_s, "Account #{account_id}"), plays: plays, latest: latest }
-      end
+    @usage_statistics[:users].map do |stat|
+      account_id = stat[:identifier]
+      stat.merge(account_id: account_id, label: labels.fetch(account_id.to_s, "Account #{account_id}"))
+    end
   end
 
   def user_labels
-    labels = PlexUserNote.where.not(username: [ nil, "" ]).pluck(:plex_user_id, :username).to_h
+    account_ids = @usage_statistics[:users].map { |stat| stat[:identifier] }
+    labels = PlexUserNote.where(plex_user_id: account_ids).where.not(username: [ nil, "" ]).pluck(:plex_user_id, :username).to_h
     (@report&.users || []).each { |user| labels[user.id.to_s] = user.label }
     labels
   end

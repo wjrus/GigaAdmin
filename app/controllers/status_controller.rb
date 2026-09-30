@@ -1,4 +1,6 @@
 class StatusController < ApplicationController
+  defer_page :index, title: "Status"
+
   def index
     load_status
   end

@@ -18,7 +18,7 @@ class ShareAuditLogsControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "renders audit log entries" do
-    get share_audit_logs_path
+    get_content share_audit_logs_path
 
     assert_response :success
     assert_select "h1", "Log"
@@ -27,7 +27,7 @@ class ShareAuditLogsControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "filters audit log entries" do
-    get share_audit_logs_path(action_type: "libraries_added", q: "Viewer")
+    get_content share_audit_logs_path(action_type: "libraries_added", q: "Viewer")
 
     assert_response :success
     assert_select "td", text: /added Movies to Viewer/
@@ -41,7 +41,7 @@ class ShareAuditLogsControllerTest < ActionDispatch::IntegrationTest
       libraries_removed: [ "Movies" ]
     )
 
-    get share_audit_logs_path(destructive: "1")
+    get_content share_audit_logs_path(destructive: "1")
 
     assert_response :success
     assert_select "td", text: /removed Former Viewer from all libraries/
@@ -50,7 +50,7 @@ class ShareAuditLogsControllerTest < ActionDispatch::IntegrationTest
 
   test "invalid date filters return no entries instead of failing or widening the search" do
     [ { from: "not-a-date" }, { to: "not-a-date" }, { to: "2026-02-30" } ].each do |filter|
-      get share_audit_logs_path(filter)
+      get_content share_audit_logs_path(filter)
 
       assert_response :success
       assert_select "td", text: /added Movies to Viewer/, count: 0
@@ -62,7 +62,7 @@ class ShareAuditLogsControllerTest < ActionDispatch::IntegrationTest
       ShareAuditLog.create!(action: "user_note_updated", admin_email: "admin@example.com", target_label: "Late evening", created_at: Time.zone.local(2026, 5, 24, 23, 59, 59))
       ShareAuditLog.create!(action: "user_note_updated", admin_email: "admin@example.com", target_label: "Next morning", created_at: Time.zone.local(2026, 5, 25))
 
-      get share_audit_logs_path(from: "2026-05-24", to: "2026-05-24")
+      get_content share_audit_logs_path(from: "2026-05-24", to: "2026-05-24")
 
       assert_response :success
       assert_select "td", text: /updated notes for Late evening/

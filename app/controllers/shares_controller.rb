@@ -2,6 +2,7 @@ require "json"
 require "rexml/document"
 
 class SharesController < ApplicationController
+  defer_page :index, title: "Access"
   around_action :serialize_share_changes, only: %i[create update destroy destroy_invite bulk_update refresh]
 
   def index

@@ -18,3 +18,12 @@ module ActiveSupport
     # Add more helper methods to be used by all tests here...
   end
 end
+
+class ActionDispatch::IntegrationTest
+  # Exercise the authenticated data request separately from the fast page shell.
+  # Keep ordinary `get` for navigation, authentication, exports, and partials.
+  def get_content(path, **options)
+    headers = (options.delete(:headers) || {}).merge("Turbo-Frame" => "page-content")
+    get(path, **options, headers: headers)
+  end
+end

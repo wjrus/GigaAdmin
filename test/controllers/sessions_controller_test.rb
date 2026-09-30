@@ -38,6 +38,33 @@ class SessionsControllerTest < ActionDispatch::IntegrationTest
     assert_redirected_to sign_in_path
   end
 
+  test "expired authentication redirects deferred content requests to a full sign-in page" do
+    ENV["ADMIN_USERS"] = "replacement@example.com"
+
+    get_content stats_path
+
+    assert_redirected_to sign_in_path
+    follow_redirect! headers: { "Turbo-Frame" => "page-content" }
+    assert_response :success
+    assert_select "h1", "Sign in"
+    assert_select "meta[name='turbo-visit-control'][content='reload']", count: 1
+    assert_select "turbo-frame#page-content", count: 0
+    assert_select "[data-controller~='deferred-page']", count: 0
+  end
+
+  test "an expired nested history request gets the same full-page sign-in instruction" do
+    ENV["ADMIN_USERS"] = "replacement@example.com"
+
+    get user_path("42"), headers: { "Turbo-Frame" => "stream_history" }
+    assert_redirected_to sign_in_path
+    follow_redirect! headers: { "Turbo-Frame" => "stream_history" }
+
+    assert_response :success
+    assert_select "h1", "Sign in"
+    assert_select "meta[name='turbo-visit-control'][content='reload']", count: 1
+    assert_select "turbo-frame", count: 0
+  end
+
   test "the obsolete singular ADMIN_USER setting cannot grant Google access" do
     ENV["ADMIN_USERS"] = ""
     ENV["ADMIN_USER"] = "admin@example.com"

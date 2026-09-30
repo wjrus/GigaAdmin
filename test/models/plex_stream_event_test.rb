@@ -181,7 +181,7 @@ class PlexStreamEventTest < ActiveSupport::TestCase
     assert_equal 2, PlexStreamEvent.completed_play_scope(scope).count
   end
 
-  test "completion deduplication uses the same local date as activity buckets" do
+  test "completion deduplication respects the application's local date" do
     Time.use_zone("America/New_York") do
       attrs = { machine_identifier: "local-days", account_id: "42", rating_key: "feature", duration: 1000, view_offset: 950 }
       PlexStreamEvent.create!(attrs.merge(viewed_at: Time.utc(2026, 1, 1, 23)))
@@ -190,7 +190,6 @@ class PlexStreamEventTest < ActiveSupport::TestCase
       scope = PlexStreamEvent.completed_play_scope(PlexStreamEvent.for_machine("local-days").recent)
 
       assert_equal [ latest.id, next_day.id ].sort, scope.pluck(:id).sort
-      assert_equal({ Date.new(2026, 1, 1) => 1, Date.new(2026, 1, 2) => 1 }, PlexStreamEvent.activity_counts(scope.recent, bucket: "day"))
     end
   end
 
@@ -300,14 +299,5 @@ class PlexStreamEventTest < ActiveSupport::TestCase
     scope = PlexStreamEvent.completed_video_play_scope(library_titles: [ "Movies" ], library_ids: [], since: since)
     inner_sql = scope.to_sql.split(" IN (", 2).last
     assert_includes inner_sql, "viewed_at >="
-  end
-
-  test "SQL activity buckets respect the application timezone" do
-    Time.use_zone("America/New_York") do
-      event = PlexStreamEvent.create!(machine_identifier: "synthetic-zone", account_id: "42",
-        viewed_at: Time.utc(2026, 1, 2, 1), media_type: "movie")
-      counts = PlexStreamEvent.activity_counts(PlexStreamEvent.where(id: event.id), bucket: "day")
-      assert_equal({ Date.new(2026, 1, 1) => 1 }, counts)
-    end
   end
 end

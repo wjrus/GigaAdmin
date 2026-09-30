@@ -1,4 +1,6 @@
 class SuppressedUsersController < ApplicationController
+  defer_page :index, title: "Suppressed Users"
+
   def index
     @machine_identifier = ENV["PLEX_MACHINE_IDENTIFIER"].presence
     @suppressed_notes = PlexUserNote.where(suppressed: true).order(suppressed_at: :desc, updated_at: :desc)

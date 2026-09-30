@@ -77,7 +77,7 @@ class SharesControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "shares page renders library checkbox pills" do
-    get root_path
+    get_content root_path
 
     assert_response :success
     assert_select "input[type=checkbox][name='library_ids[]']"
@@ -89,7 +89,7 @@ class SharesControllerTest < ActionDispatch::IntegrationTest
   test "shares page hides suppressed users" do
     PlexUserNote.find_or_create_by!(plex_user_id: "42").update!(suppressed: true)
 
-    get root_path
+    get_content root_path
 
     assert_response :success
     assert_select "td", text: "Viewer", count: 0

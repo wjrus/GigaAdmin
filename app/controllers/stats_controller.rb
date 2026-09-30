@@ -1,4 +1,6 @@
 class StatsController < ApplicationController
+  defer_page :index, title: "Stats"
+
   PERIOD_OPTIONS = {
     "24h" => { label: "Last day", duration: 24.hours },
     "7d" => { label: "Last week", duration: 168.hours },
@@ -8,17 +10,6 @@ class StatsController < ApplicationController
     "1y" => { label: "Last year", duration: 8760.hours },
     "all" => { label: "All time" }
   }.freeze
-
-  MOVIE_IDENTITY_SQL = <<~SQL.squish.freeze
-    COALESCE('id:' || NULLIF(rating_key, ''),
-      'title:' || COALESCE(NULLIF(title, ''), NULLIF(full_title, '')),
-      'event:' || id::text)
-  SQL
-  SHOW_IDENTITY_SQL = <<~SQL.squish.freeze
-    COALESCE('id:' || NULLIF(metadata->>'grandparent_rating_key', ''),
-      'title:' || COALESCE(NULLIF(metadata->>'grandparent_title', ''), NULLIF(split_part(full_title, ' - ', 1), '')),
-      'episode:' || NULLIF(rating_key, ''), 'event:' || id::text)
-  SQL
 
   def index
     @machine_identifier = required_machine_identifier
@@ -33,13 +24,16 @@ class StatsController < ApplicationController
     @active_library_titles = @active_libraries.map(&:title)
     @active_library_ids = @active_libraries.flat_map { |library| [ library.id, library.key ] }.compact.map(&:to_s)
     @library_labels_by_identifier = library_labels_by_identifier
-    @period_summary = period_summary
-    @library_stats = library_stats
-    @type_stats = type_stats
+    @usage_statistics = Plex::UsageStatistics.new(scope: completed_event_scope, bucket: daily_activity? ? "day" : "month").call
+    @period_summary = @usage_statistics[:summary]
+    @library_stats = @usage_statistics[:libraries].map do |stat|
+      stat.merge(label: @library_labels_by_identifier.fetch(stat[:identifier].to_s, stat[:identifier].to_s))
+    end.sort_by { |stat| [ -stat[:plays], stat[:label].downcase ] }
+    @type_stats = @usage_statistics[:types].map { |stat| stat.merge(label: stat[:identifier]) }
     @activity_stats = activity_stats
     @top_users = top_users
-    @top_movies = top_titles(media_type: "movie", identity_sql: MOVIE_IDENTITY_SQL)
-    @top_shows = top_titles(media_type: "episode", identity_sql: SHOW_IDENTITY_SQL)
+    @top_movies = @usage_statistics[:movies]
+    @top_shows = @usage_statistics[:shows]
     @max_library_plays = @library_stats.map { |stat| stat[:plays] }.max.to_i
     @max_type_plays = @type_stats.map { |stat| stat[:plays] }.max.to_i
     @max_activity_plays = @activity_stats.map { |stat| stat[:plays] }.max.to_i
@@ -55,48 +49,20 @@ class StatsController < ApplicationController
 
   private
 
-  def period_summary
-    count, oldest, newest = completed_event_scope.pick(Arel.sql("COUNT(*)"), Arel.sql("MIN(viewed_at)"), Arel.sql("MAX(viewed_at)"))
-    {
-      completed_plays: count,
-      oldest: oldest,
-      newest: newest
-    }
-  end
-
-  def library_stats
-    identifier = Arel.sql(PlexStreamEvent::LIBRARY_IDENTIFIER_SQL)
-    completed_event_scope
-      .group(identifier)
-      .pluck(identifier, Arel.sql("COUNT(*)"), Arel.sql("COUNT(DISTINCT account_id)"), Arel.sql("MAX(viewed_at)"))
-      .map do |key, plays, users, latest|
-        { label: @library_labels_by_identifier.fetch(key.to_s, key.to_s), plays: plays, users: users, latest: latest }
-      end
-      .sort_by { |stat| [ -stat[:plays], stat[:label].downcase ] }
-      .first(12)
-  end
-
-  def type_stats
-    completed_event_scope
-      .where.not(media_type: [ nil, "" ])
-      .group(:media_type)
-      .order(Arel.sql("COUNT(*) DESC"))
-      .pluck(:media_type, Arel.sql("COUNT(*)"), Arel.sql("COUNT(DISTINCT account_id)"))
-      .map do |media_type, plays, users|
-        { label: media_type, plays: plays, users: users }
-      end
-  end
-
   def activity_stats
-    if @stats_period.in?(%w[24h 7d 30d])
+    if daily_activity?
       daily_activity_stats
     else
       monthly_activity_stats
     end
   end
 
+  def daily_activity?
+    @stats_period.in?(%w[24h 7d 30d])
+  end
+
   def daily_activity_stats
-    counts_by_day = PlexStreamEvent.activity_counts(completed_event_scope, bucket: "day")
+    counts_by_day = @usage_statistics[:activity]
 
     (@stats_period_start.to_date..@stats_period_end.to_date).map do |day|
       { label: day.strftime("%b %-d"), plays: counts_by_day.fetch(day, 0) }
@@ -104,10 +70,9 @@ class StatsController < ApplicationController
   end
 
   def monthly_activity_stats
-    scope = completed_event_scope
-    start_time = @stats_period_start || scope.minimum(:viewed_at)&.beginning_of_month || @stats_period_end.beginning_of_month
+    start_time = @stats_period_start || @period_summary[:oldest]&.beginning_of_month || @stats_period_end.beginning_of_month
     end_time = @stats_period_end.beginning_of_month
-    counts_by_month = PlexStreamEvent.activity_counts(scope, bucket: "month")
+    counts_by_month = @usage_statistics[:activity]
 
     months = []
     cursor = start_time.beginning_of_month
@@ -123,25 +88,10 @@ class StatsController < ApplicationController
 
   def top_users
     label_by_account_id = user_labels
-    completed_event_scope
-      .group(:account_id)
-      .order(Arel.sql("COUNT(*) DESC"), :account_id)
-      .limit(10)
-      .pluck(:account_id, Arel.sql("COUNT(*)"), Arel.sql("MAX(viewed_at)"))
-      .map do |account_id, plays, latest|
-        { account_id: account_id, label: label_by_account_id.fetch(account_id.to_s, "Account #{account_id}"), plays: plays, latest: latest }
-      end
-  end
-
-  def top_titles(media_type:, identity_sql:)
-    identity = Arel.sql(identity_sql)
-    label = Arel.sql("MIN(#{PlexStreamEvent::AGGREGATE_TITLE_SQL})")
-    completed_event_scope.where(media_type: media_type)
-      .group(identity)
-      .order(Arel.sql("COUNT(*) DESC"), label, identity)
-      .limit(10)
-      .pluck(label, Arel.sql("COUNT(*)"), Arel.sql("COUNT(DISTINCT account_id)"))
-      .map { |title, plays, users| { label: title, plays: plays, users: users } }
+    @usage_statistics[:users].first(10).map do |stat|
+      account_id = stat[:identifier]
+      stat.merge(account_id: account_id, label: label_by_account_id.fetch(account_id.to_s, "Account #{account_id}"))
+    end
   end
 
   def active_libraries
@@ -157,7 +107,8 @@ class StatsController < ApplicationController
   end
 
   def user_labels
-    labels = PlexUserNote.where.not(username: [ nil, "" ]).pluck(:plex_user_id, :username).to_h
+    account_ids = @usage_statistics[:users].first(10).map { |stat| stat[:identifier] }
+    labels = PlexUserNote.where(plex_user_id: account_ids).where.not(username: [ nil, "" ]).pluck(:plex_user_id, :username).to_h
     (sharing_report&.users || []).each do |user|
       labels[user.id.to_s] = user.label
     end

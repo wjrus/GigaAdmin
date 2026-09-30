@@ -1,4 +1,7 @@
 class ApplicationController < ActionController::Base
+  include DeferredPage
+
+  layout :application_layout
   before_action :require_admin!
   helper_method :admin_signed_in?, :current_admin_email, :local_authentication?, :current_local_admin, :current_super_admin?
 

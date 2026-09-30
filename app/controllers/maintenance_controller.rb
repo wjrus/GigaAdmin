@@ -1,4 +1,6 @@
 class MaintenanceController < ApplicationController
+  defer_page :index, title: "Maintenance"
+
   def index
     load_refresh
     load_maintenance

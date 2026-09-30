@@ -21,6 +21,7 @@ class LocalAuthenticationTest < ActionDispatch::IntegrationTest
     get setup_path
     assert_response :success
     assert_select "aside", text: /grant or revoke library access/
+    assert_select "form[action=?][data-turbo='false']", setup_path
 
     assert_difference "AdminUser.count", 1 do
       post setup_path, params: { admin_user: credentials }
@@ -47,6 +48,17 @@ class LocalAuthenticationTest < ActionDispatch::IntegrationTest
     assert_redirected_to root_path
   end
 
+  test "a deferred page request cannot skip first-run setup" do
+    get_content users_path
+
+    assert_redirected_to setup_path
+    follow_redirect! headers: { "Turbo-Frame" => "page-content" }
+    assert_response :success
+    assert_select "form[action=?]", setup_path
+    assert_select "meta[name='turbo-visit-control'][content='reload']", count: 1
+    assert_select "turbo-frame#page-content", count: 0
+  end
+
   test "first page has a usable CSP nonce before a session already exists" do
     get setup_path
     assert_response :success
@@ -70,6 +82,7 @@ class LocalAuthenticationTest < ActionDispatch::IntegrationTest
     post local_sign_in_path, params: { session: { email: " OWNER@example.com ", password: "incorrect" } }
     assert_response :unprocessable_entity
     assert_includes response.body, "Email or password is incorrect"
+    assert_select "form[action=?][data-turbo='false']", local_sign_in_path
     post local_sign_in_path, params: { session: { email: " OWNER@example.com ", password: PASSWORD } }
     assert_redirected_to root_path
     get admin_users_path

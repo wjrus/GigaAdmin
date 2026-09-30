@@ -1,4 +1,6 @@
 class UsersController < ApplicationController
+  defer_page :index, title: "Users"
+  defer_page :show, title: "User"
   require "csv"
   require "set"
 
@@ -62,10 +64,15 @@ class UsersController < ApplicationController
     @stream_filter_params = stream_filter_params
     respond_to do |format|
       format.html do
+        load_stream_history
+        if request.headers["Turbo-Frame"] == "stream_history"
+          render partial: "stream_history", layout: false
+          return
+        end
+
         @notes_by_user_id = PlexUserNote.for_users([ @user ])
         @note = @notes_by_user_id[@user.id.to_s]
         load_stats_period
-        load_stream_history
         load_user_stream_stats
         load_user_stream_charts
         load_now_playing_samples
@@ -254,14 +261,13 @@ class UsersController < ApplicationController
   end
 
   def load_user_stream_stats
-    scope = completed_stream_scope
-    total, first, last = scope.pick(Arel.sql("COUNT(*)"), Arel.sql("MIN(viewed_at)"), Arel.sql("MAX(viewed_at)"))
+    summary = user_usage_statistics[:summary]
     @stream_stats = {
-      total: total,
-      first: first,
-      last: last,
-      top_type: top_group_value(scope, :media_type),
-      top_library: top_group_value(scope, :library_title)
+      total: summary[:completed_plays],
+      first: summary[:oldest],
+      last: summary[:newest],
+      top_type: top_usage_group(user_usage_statistics[:types]),
+      top_library: top_usage_group(user_usage_statistics[:libraries], library: true)
     }
   end
 
@@ -317,16 +323,10 @@ class UsersController < ApplicationController
   end
 
   def load_user_stream_charts
-    scope = completed_stream_scope
-    @stream_activity_stats = user_activity_stats(scope)
-    @stream_type_stats = scope
-      .where.not(media_type: [ nil, "" ])
-      .group(:media_type)
-      .order(Arel.sql("COUNT(*) DESC"))
-      .pluck(:media_type, Arel.sql("COUNT(*)"))
-      .map { |media_type, plays| { label: media_type, plays: plays } }
-    @stream_top_series = aggregate_title_stats(scope.where(media_type: "episode"), limit: 8)
-    @stream_top_movies = aggregate_title_stats(scope.where(media_type: "movie"), limit: 8)
+    @stream_activity_stats = user_activity_stats
+    @stream_type_stats = user_usage_statistics[:types].map { |stat| stat.merge(label: stat[:identifier]) }
+    @stream_top_series = user_usage_statistics[:shows].first(8)
+    @stream_top_movies = user_usage_statistics[:movies].first(8)
     @max_stream_activity_plays = @stream_activity_stats.map { |stat| stat[:plays] }.max.to_i
     @max_stream_type_plays = @stream_type_stats.map { |stat| stat[:plays] }.max.to_i
     @max_stream_series_plays = @stream_top_series.map { |stat| stat[:plays] }.max.to_i
@@ -341,17 +341,23 @@ class UsersController < ApplicationController
       .limit(12)
   end
 
-  def user_activity_stats(scope)
+  def user_usage_statistics
+    @user_usage_statistics ||= Plex::UsageStatistics.new(scope: completed_stream_scope,
+      bucket: @stats_period.in?(%w[7d 30d]) ? "day" : "month",
+      sections: %i[summary libraries types activity movies shows]).call
+  end
+
+  def user_activity_stats
     if @stats_period.in?(%w[7d 30d])
-      user_daily_stats(scope)
+      user_daily_stats
     else
-      user_monthly_stats(scope)
+      user_monthly_stats
     end
   end
 
-  def user_daily_stats(scope)
+  def user_daily_stats
     days = @stats_period == "30d" ? 30 : 7
-    counts_by_day = PlexStreamEvent.activity_counts(scope, bucket: "day")
+    counts_by_day = user_usage_statistics[:activity]
 
     (days - 1).downto(0).map do |days_ago|
       day = days_ago.days.ago.to_date
@@ -359,10 +365,10 @@ class UsersController < ApplicationController
     end
   end
 
-  def user_monthly_stats(scope)
-    start_time = @stats_period_start || scope.minimum(:viewed_at)&.beginning_of_month || Time.current.beginning_of_month
+  def user_monthly_stats
+    start_time = @stats_period_start || user_usage_statistics[:summary][:oldest]&.beginning_of_month || Time.current.beginning_of_month
     end_time = Time.current.beginning_of_month
-    counts_by_month = PlexStreamEvent.activity_counts(scope, bucket: "month")
+    counts_by_month = user_usage_statistics[:activity]
 
     months = []
     cursor = start_time.beginning_of_month
@@ -376,20 +382,16 @@ class UsersController < ApplicationController
     end
   end
 
-  def aggregate_title_stats(scope, limit:)
-    title = Arel.sql(PlexStreamEvent::AGGREGATE_TITLE_SQL)
-    scope
-      .group(title)
-      .order(Arel.sql("COUNT(*) DESC, LOWER(#{PlexStreamEvent::AGGREGATE_TITLE_SQL}) ASC"))
-      .limit(limit)
-      .pluck(title, Arel.sql("COUNT(*)"), Arel.sql("MAX(viewed_at)"))
-      .map { |label, plays, latest| { label: label, plays: plays, latest: latest } }
-  end
+  def top_usage_group(groups, library: false)
+    stat = groups.first
+    return "Unknown" unless stat
 
-  def top_group_value(scope, column)
-    value, count = scope.where.not(column => [ nil, "" ]).group(column)
-      .order(Arel.sql("COUNT(*) DESC"), column).limit(1).pick(column, Arel.sql("COUNT(*)"))
-    value ? "#{value} (#{count})" : "Unknown"
+    label = stat[:identifier]
+    if library
+      match = @libraries.find { |entry| [ entry.id, entry.key, entry.title ].compact.map(&:to_s).include?(label.to_s) }
+      label = match.title if match
+    end
+    "#{label} (#{stat[:plays]})"
   end
 
   def record_note_update(note)

@@ -1,11 +1,12 @@
 <% content_for :title, "Sign In" %>
+<% turbo_page_requires_reload %>
 
 <div class="flex min-h-screen items-center justify-center px-4 py-10">
   <section class="w-full max-w-md rounded-lg border border-zinc-800 bg-zinc-900 p-6 shadow-2xl shadow-black/30">
     <h1 class="text-2xl font-semibold text-white">Sign in</h1>
     <% if local_authentication? %>
       <p class="mt-2 text-sm leading-6 text-zinc-400">Sign in with your GigaAdmin administrator account.</p>
-      <%= form_with url: local_sign_in_path, scope: :session, class: "mt-6 space-y-4" do |form| %>
+      <%= form_with url: local_sign_in_path, scope: :session, data: { turbo: false }, class: "mt-6 space-y-4" do |form| %>
         <div>
           <%= form.label :email, "Email", class: "block text-sm font-medium" %>
           <%= form.email_field :email, required: true, autocomplete: "username", autofocus: true, class: "mt-1 w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-white" %>
@@ -16,7 +17,7 @@
         </div>
         <%= form.submit "Sign in", class: "w-full cursor-pointer rounded bg-cyan-300 px-4 py-2.5 font-semibold text-zinc-950 hover:bg-cyan-200" %>
       <% end %>
-      <p class="mt-4 text-sm text-zinc-400">Need an account? Ask an administrator for an invitation.</p>
+      <p class="mt-4 text-sm text-zinc-400">Need an account? Ask a super administrator for an invitation.</p>
     <% elsif ENV["GOOGLE_CLIENT_ID"].blank? || ENV["GOOGLE_CLIENT_SECRET"].blank? %>
       <p class="mt-5 rounded border border-amber-500/40 p-4 text-sm">Google sign-in is unavailable. Ask your server administrator to finish configuring this installation.</p>
 

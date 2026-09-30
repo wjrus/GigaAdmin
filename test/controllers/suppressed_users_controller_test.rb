@@ -37,7 +37,7 @@ class SuppressedUsersControllerTest < ActionDispatch::IntegrationTest
       media_type: "movie"
     )
 
-    get suppressed_users_path
+    get_content suppressed_users_path
 
     assert_response :success
     assert_select "h1", "Suppressed Users"
@@ -58,7 +58,7 @@ class SuppressedUsersControllerTest < ActionDispatch::IntegrationTest
     end
 
     ActiveSupport::Notifications.subscribed(subscriber, "sql.active_record") do
-      get suppressed_users_path
+      get_content suppressed_users_path
     end
 
     assert_response :success

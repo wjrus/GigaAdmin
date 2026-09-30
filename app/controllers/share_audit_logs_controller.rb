@@ -1,4 +1,6 @@
 class ShareAuditLogsController < ApplicationController
+  defer_page :index, title: "Audit Log"
+
   DESTRUCTIVE_ACTIONS = %w[
     library_access_removed
     libraries_removed

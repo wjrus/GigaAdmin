@@ -48,7 +48,7 @@ class NowPlayingControllerTest < ActionDispatch::IntegrationTest
     original_from_env = Plex::Client.method(:from_env)
     begin
       Plex::Client.define_singleton_method(:from_env) { client }
-      get now_playing_path
+      get_content now_playing_path
 
       assert_response :success
       assert_select "h1", "Now Playing"
@@ -122,7 +122,7 @@ class NowPlayingControllerTest < ActionDispatch::IntegrationTest
     original_from_env = Plex::Client.method(:from_env)
     begin
       Plex::Client.define_singleton_method(:from_env) { client }
-      get now_playing_path
+      get_content now_playing_path
 
       assert_response :success
       assert_select "dd", text: "198.51.100.20"
@@ -163,7 +163,7 @@ class NowPlayingControllerTest < ActionDispatch::IntegrationTest
     original_from_env = Plex::Client.method(:from_env)
     begin
       Plex::Client.define_singleton_method(:from_env) { client }
-      get now_playing_path
+      get_content now_playing_path
 
       assert_response :success
       body = @response.body
@@ -198,7 +198,7 @@ class NowPlayingControllerTest < ActionDispatch::IntegrationTest
     original_from_env = Plex::Client.method(:from_env)
     begin
       Plex::Client.define_singleton_method(:from_env) { client }
-      get now_playing_path(view: "compact")
+      get_content now_playing_path(view: "compact")
 
       assert_response :success
       assert_select "a[aria-label='Compact list view'][aria-current='page']"
@@ -222,16 +222,16 @@ class NowPlayingControllerTest < ActionDispatch::IntegrationTest
     observed = Time.zone.local(2026, 9, 29, 12, 0, 58)
     travel_to observed
 
-    get now_playing_path
+    get_content now_playing_path
     assert_response :success
     travel 4.seconds
-    get now_playing_path
+    get_content now_playing_path
     assert_response :success
     assert_equal 1, calls
     assert_select "p", text: "Checked #{I18n.l(observed, format: :short)}"
 
     ENV["PLEX_SERVER_BASE_URL"] = "http://another.example.test"
-    get now_playing_path
+    get_content now_playing_path
     assert_response :success
     assert_equal 2, calls
   ensure

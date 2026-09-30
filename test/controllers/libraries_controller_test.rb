@@ -29,7 +29,7 @@ class LibrariesControllerTest < ActionDispatch::IntegrationTest
       viewed_at: Time.zone.local(2026, 5, 24, 13, 0, 0)
     )
 
-    get library_path("Movies")
+    get_content library_path("Movies")
 
     assert_response :success
     assert_select "h1", "Movies"
@@ -37,6 +37,24 @@ class LibrariesControllerTest < ActionDispatch::IntegrationTest
     assert_select "div", text: "viewer"
     assert_select "h2", "Top Users"
     assert_select "td", text: "Feature"
+  end
+
+  test "shares one deduplication query across library statistics and recent stream ids" do
+    attrs = { machine_identifier: "machine-one", library_title: "Movies", media_type: "movie", duration: 1000, view_offset: 950 }
+    PlexStreamEvent.create!(attrs.merge(account_id: "42", rating_key: "one", title: "Older", viewed_at: 2.days.ago))
+    PlexStreamEvent.create!(attrs.merge(account_id: "43", rating_key: "two", title: "Latest", viewed_at: Time.current))
+    reads = []
+    subscriber = ->(_name, _start, _finish, _id, payload) do
+      reads << payload[:sql] if payload[:name] == "Plex usage statistics" || payload[:sql].match?(/\ASELECT .*plex_stream_events/im)
+    end
+    ActiveSupport::Notifications.subscribed(subscriber, "sql.active_record") do
+      get_content library_path("Movies")
+    end
+
+    assert_response :success
+    assert_select "td", text: "Latest"
+    assert_equal 2, reads.size
+    assert_equal 1, reads.count { |sql| sql.include?("DISTINCT ON") }
   end
 
   private

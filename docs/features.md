@@ -75,6 +75,13 @@ delete them or continue collecting their personal details.
 
 ## History and statistics
 
+Data-heavy pages open with navigation and a loading indicator, then fill in
+asynchronously. This applies to Access, Users, user profiles, libraries, Stats,
+Now Playing, Status, Maintenance, the audit log, and suppressed users. Filters
+and page navigation follow the same path. Authentication and account forms remain
+immediately available. If a data request fails, retry it or use the full-page
+fallback; collection and import jobs do not run just because a page is opened.
+
 Playback history is imported from your Plex Media Server. **Stats** summarizes
 movie and episode activity for libraries in the latest sharing snapshot. User
 profiles show their history, activity charts, and top series and movies. Audio

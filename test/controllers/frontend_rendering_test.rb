@@ -41,7 +41,7 @@ class FrontendRenderingTest < ActionDispatch::IntegrationTest
 
   test "user rows expose native links without replacing table semantics" do
     [ root_path, users_path ].each do |path|
-      get path
+      get_content path
       assert_response :success
       assert_select "tr[data-controller='row-link']" do
         assert_select "a[href='#{user_path('42')}'][data-turbo-prefetch=false]", minimum: 1
@@ -52,7 +52,7 @@ class FrontendRenderingTest < ActionDispatch::IntegrationTest
   end
 
   test "destructive dialog has an accessible title and description and handles Escape" do
-    get user_path("42")
+    get_content user_path("42")
 
     assert_response :success
     assert_select "dialog[aria-labelledby='confirmation-title'][aria-describedby='confirmation-body'][data-action='cancel->confirmation#cancel']" do
@@ -62,13 +62,13 @@ class FrontendRenderingTest < ActionDispatch::IntegrationTest
   end
 
   test "legacy session details only appear when stored records exist" do
-    get user_path("42")
+    get_content user_path("42")
     assert_response :success
     assert_select "h2", text: "Legacy session samples", count: 0
 
     PlexNowPlayingSample.create!(machine_identifier: "machine-one", account_id: "42", sampled_at: Time.current,
       user_label: "viewer", player_title: "Legacy player", full_title: "Legacy movie")
-    get user_path("42")
+    get_content user_path("42")
 
     assert_response :success
     assert_select "h2", text: "Legacy session samples", count: 1

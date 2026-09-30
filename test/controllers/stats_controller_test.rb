@@ -41,7 +41,7 @@ class StatsControllerTest < ActionDispatch::IntegrationTest
       viewed_at: Time.zone.local(2026, 5, 25, 13, 0, 0)
     )
 
-    get stats_path
+    get_content stats_path
 
     assert_response :success
     assert_select "h1", "Stats"
@@ -82,12 +82,12 @@ class StatsControllerTest < ActionDispatch::IntegrationTest
       viewed_at: Time.zone.local(2026, 4, 1, 13, 0, 0)
     )
 
-    get stats_path
+    get_content stats_path
 
     assert_response :success
     assert_select "p", text: "1"
 
-    get stats_path(period: "all")
+    get_content stats_path(period: "all")
 
     assert_response :success
     assert_select "a[aria-current='page']", "All time"
@@ -102,7 +102,7 @@ class StatsControllerTest < ActionDispatch::IntegrationTest
       payload = args.last
       instantiated += payload[:record_count] if payload[:class_name] == "PlexStreamEvent"
     end
-    get stats_path(period: "all")
+    get_content stats_path(period: "all")
     assert_response :success
     assert_equal 0, instantiated
   ensure
@@ -120,7 +120,7 @@ class StatsControllerTest < ActionDispatch::IntegrationTest
     create_play(media_type: "episode", library_title: "TV Shows", rating_key: "legacy-1", full_title: "Legacy Show - Season 1 - Pilot")
     create_play(media_type: "episode", library_title: "TV Shows", rating_key: "legacy-2", full_title: "Legacy Show - Season 2 - Finale")
 
-    get stats_path
+    get_content stats_path
 
     assert_response :success
     assert_select "#top-shows li", count: 3
@@ -138,7 +138,7 @@ class StatsControllerTest < ActionDispatch::IntegrationTest
     create_play(rating_key: "", title: "Legacy Beta", account_id: "5")
     create_play(rating_key: nil, title: "Legacy Alpha", account_id: "6")
 
-    get stats_path
+    get_content stats_path
 
     assert_response :success
     assert_select "#top-movies li", count: 4
@@ -163,7 +163,7 @@ class StatsControllerTest < ActionDispatch::IntegrationTest
         metadata: { grandparent_rating_key: "winner-show", grandparent_title: "Winning Show" })
     end
 
-    get stats_path
+    get_content stats_path
 
     assert_response :success
     assert_select "#top-movies li", count: 10
@@ -182,7 +182,7 @@ class StatsControllerTest < ActionDispatch::IntegrationTest
       create_play(rating_key: "outside", title: "Outside window", viewed_at: boundary - 1.second)
       create_play(rating_key: "future", title: "Future clock", viewed_at: Time.current + 1.second)
 
-      get stats_path(period: period)
+      get_content stats_path(period: period)
 
       assert_response :success
       assert_select "#top-movies li", count: 1
@@ -197,7 +197,7 @@ class StatsControllerTest < ActionDispatch::IntegrationTest
     create_play(rating_key: "inactive", title: "Inactive Library", library_title: "Removed Movies")
     create_play(rating_key: "other-machine", title: "Other Machine", machine_identifier: "machine-two")
 
-    get stats_path(period: "invalid")
+    get_content stats_path(period: "invalid")
 
     assert_response :success
     assert_select "a[aria-current=page]", text: "Last week"

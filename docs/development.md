@@ -96,6 +96,30 @@ RAILS_ENV=production SECRET_KEY_BASE_DUMMY=1 BUNDLE_WITHOUT=development:test \
 
 ## Project map
 
+Data pages declare `defer_page` in their controller. The first authenticated HTML
+request renders only navigation and a loading state; Turbo requests the same URL
+with `Turbo-Frame: page-content` for the data. Both requests enforce authorization.
+The frame uses `_top` navigation so filters and form redirects keep ordinary URLs,
+history, and flash messages. `sync=1` explicitly requests a full synchronous page
+for recovery or browsers without JavaScript. CSV and polling partials bypass this
+mechanism. In integration tests, use ordinary `get` to test the shell and
+`get_content` to test its deferred data response.
+
+The user's `stream_history` frame renders only its history partial when filtered
+or paged. Preserve that separate path so history navigation does not recalculate
+the profile's charts. Sign-in and setup require full-page navigation when a frame
+request discovers an expired session.
+
+Keep queries out of the shell. `DeferredPagesTest` checks that every registered
+page opens without reading playback, snapshot, activity, or audit tables and that
+no Plex client is constructed. Native Turbo owns frame requests; the small
+Stimulus controller adds failure/retry UI and handles expired-session redirects.
+
+`Plex::UsageStatistics` computes dashboard aggregates from one materialized,
+completion-deduplicated relation. Its fixed SQL sections return bounded rankings
+and date buckets; callers request only the sections they display. Library pages
+load at most fifty recent records by the IDs returned from that same calculation.
+
 | Location | Responsibility |
 | --- | --- |
 | `app/controllers/` and `app/views/` | Admin pages, authorization, forms, and exports |

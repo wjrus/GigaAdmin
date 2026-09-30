@@ -23,7 +23,7 @@ class MaintenanceControllerTest < ActionDispatch::IntegrationTest
       sampled_at: Time.zone.local(2026, 5, 25, 12, 0, 0)
     )
 
-    get maintenance_path
+    get_content maintenance_path
 
     assert_response :success
     assert_select "h1", "Maintenance"
@@ -71,7 +71,7 @@ class MaintenanceControllerTest < ActionDispatch::IntegrationTest
     original = ENV["PLEX_ACTIVITY_RETENTION_DAYS"]
     ENV["PLEX_ACTIVITY_RETENTION_DAYS"] = "invalid"
 
-    get maintenance_path
+    get_content maintenance_path
     assert_response :success
     assert_select "[role=alert]", text: /PLEX_ACTIVITY_RETENTION_DAYS/
     assert_no_difference -> { PlexActivitySample.count } do

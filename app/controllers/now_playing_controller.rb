@@ -1,4 +1,6 @@
 class NowPlayingController < ApplicationController
+  defer_page :index, title: "Now Playing"
+
   VIEW_MODES = %w[tiles compact].freeze
 
   def index

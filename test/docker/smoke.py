@@ -58,6 +58,31 @@ class Forms(HTMLParser):
         raise SmokeFailure(f"Expected form for {action} was missing")
 
 
+class Page(HTMLParser):
+    def __init__(self, html):
+        super().__init__()
+        self.frames = []
+        self.full_document = False
+        self.navigation = False
+        self.loading = False
+        self.text = []
+        self.feed(html)
+
+    def handle_starttag(self, tag, attributes):
+        attributes = dict(attributes)
+        if tag == "html":
+            self.full_document = True
+        elif tag == "turbo-frame" and attributes.get("id") == "page-content":
+            self.frames.append(attributes)
+        elif tag == "nav" and attributes.get("aria-label") == "Page navigation":
+            self.navigation = True
+        if attributes.get("data-deferred-page-target") == "loading" and attributes.get("role") == "status":
+            self.loading = True
+
+    def handle_data(self, data):
+        self.text.append(data)
+
+
 class Browser:
     def __init__(self, base_url):
         parsed = urllib.parse.urlsplit(base_url)
@@ -78,7 +103,13 @@ class Browser:
             NoRedirects(),
         )
 
-    def request(self, path, fields=None):
+    def request(self, path, fields=None, headers=None):
+        """Use only origin-relative paths and the known deferred-frame header."""
+        parsed = urllib.parse.urlsplit(path)
+        if not path.startswith("/") or parsed.scheme or parsed.netloc or parsed.fragment:
+            raise SmokeFailure("Smoke requests must use origin-relative paths")
+        if headers is not None and headers != {"Turbo-Frame": "page-content"}:
+            raise SmokeFailure("Only the page-content Turbo-Frame request header is supported")
         data = None if fields is None else urllib.parse.urlencode(fields).encode()
         request = urllib.request.Request(
             self.base_url + path,
@@ -89,6 +120,7 @@ class Browser:
                     "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
                 ),
                 "Accept": "text/html",
+                **(headers or {}),
             },
         )
         try:
@@ -130,6 +162,27 @@ def expect_admin_page(response):
         raise SmokeFailure("The first account cannot invite additional administrators")
 
 
+def expect_deferred_shell(response, path):
+    expect_status(response, 200, f"{path} page shell")
+    page = Page(response[2])
+    if not page.full_document or not page.navigation or not page.loading:
+        raise SmokeFailure(f"{path}: page shell must include the layout, navigation, and loading status")
+    if len(page.frames) != 1 or page.frames[0].get("src") != path or page.frames[0].get("target") != "_top":
+        raise SmokeFailure(f"{path}: expected one same-URL page-content frame targeting full navigation")
+
+
+def expect_deferred_content(response, path, expected_text):
+    expect_status(response, 200, f"{path} deferred content")
+    page = Page(response[2])
+    if page.full_document or len(page.frames) != 1:
+        raise SmokeFailure(f"{path}: deferred response must contain one page-content frame without a full layout")
+    frame = page.frames[0]
+    if "src" in frame or frame.get("target") != "_top" or page.loading:
+        raise SmokeFailure(f"{path}: deferred response must contain finished content, not another loading request")
+    if expected_text not in " ".join(page.text):
+        raise SmokeFailure(f"{path}: expected page content was missing")
+
+
 def main():
     browser = Browser(os.environ.get("GIGAADMIN_SMOKE_URL", "http://localhost:3010"))
     email = "smoke-admin@example.invalid"
@@ -153,9 +206,21 @@ def main():
     expect_admin_page(admin_page)
     expect_redirect(browser.request("/setup"), "/sign_in", "Setup closes after first account")
 
+    frame_headers = {"Turbo-Frame": "page-content"}
+    for path, expected_text in (("/stats", "Unavailable"), ("/maintenance", "Plex Data Refresh")):
+        expect_deferred_shell(browser.request(path), path)
+        expect_deferred_content(browser.request(path, headers=frame_headers), path, expected_text)
+
     signed_out = submit_form(browser, admin_page[2], "/sign_out", {"_method": "delete"})
     expect_redirect(signed_out, "/sign_in", "Sign out")
     expect_redirect(browser.request("/admin/users"), "/sign_in", "Signed-out admin request")
+    expect_redirect(browser.request("/stats", headers=frame_headers), "/sign_in", "Signed-out deferred request")
+    frame_sign_in = browser.request("/sign_in", headers=frame_headers)
+    expect_status(frame_sign_in, 200, "Full sign-in response after deferred authentication expires")
+    sign_in_page = Page(frame_sign_in[2])
+    if not sign_in_page.full_document or sign_in_page.frames:
+        raise SmokeFailure("Sign-in must remain a full page for the frame's authentication redirect handler")
+    Forms(frame_sign_in[2]).find("/sign_in")
 
     sign_in = browser.request("/sign_in")
     expect_status(sign_in, 200, "Local sign-in form")
@@ -174,7 +239,7 @@ def main():
     )
     expect_redirect(signed_in, "/", "Password sign-in")
     expect_admin_page(browser.request("/admin/users"))
-    print("Fresh-install smoke passed: health, CSRF, bootstrap, admin access, setup closure, sign-out, and password sign-in.")
+    print("Fresh-install smoke passed: health, CSRF, bootstrap, admin access, async shells/content, frame authentication, setup closure, sign-out, and password sign-in.")
 
 
 if __name__ == "__main__":

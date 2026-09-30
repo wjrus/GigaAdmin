@@ -31,14 +31,14 @@ class UsersControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "sorts users by name ascending by default" do
-    get users_path
+    get_content users_path
 
     assert_response :success
     assert_select "a[aria-label*='Name, sorted ascending']"
   end
 
   test "sorts users by last streamed descending" do
-    get users_path(sort: "last_streamed", direction: "desc")
+    get_content users_path(sort: "last_streamed", direction: "desc")
 
     assert_response :success
     assert_select "a[aria-label*='Last Streamed, sorted descending']"
@@ -57,7 +57,7 @@ class UsersControllerTest < ActionDispatch::IntegrationTest
       "asc" => [ "Older playback", "Recent playback", "Never played" ],
       "desc" => [ "Recent playback", "Older playback", "Never played" ]
     }.each do |direction, expected_names|
-      get users_path(sort: "last_streamed", direction: direction)
+      get_content users_path(sort: "last_streamed", direction: direction)
 
       assert_response :success
       assert_select "tbody tr td:first-child" do |cells|
@@ -85,7 +85,7 @@ class UsersControllerTest < ActionDispatch::IntegrationTest
     end
 
     ActiveSupport::Notifications.subscribed(subscriber, "sql.active_record") do
-      get users_path(q: "local-")
+      get_content users_path(q: "local-")
     end
 
     assert_response :success
@@ -156,7 +156,7 @@ class UsersControllerTest < ActionDispatch::IntegrationTest
       progress_percent: 42
     )
 
-    get user_path("42")
+    get_content user_path("42")
 
     assert_response :success
     assert_select "h1", "viewer"
@@ -189,6 +189,23 @@ class UsersControllerTest < ActionDispatch::IntegrationTest
     assert_select "button", "Remove user from Plex shares"
   end
 
+  test "user summary and charts share one aggregate history query" do
+    PlexStreamEvent.create!(machine_identifier: "machine-one", account_id: "42", library_title: "Movies",
+      media_type: "movie", rating_key: "aggregate-feature", title: "Aggregated Feature", viewed_at: Time.current)
+    queries = []
+    callback = ->(_name, _start, _finish, _id, payload) do
+      queries << payload[:sql] if payload[:name] == "Plex usage statistics"
+    end
+    ActiveSupport::Notifications.subscribed(callback, "sql.active_record") do
+      get_content user_path("42"), params: { period: "all" }
+    end
+
+    assert_response :success
+    assert_equal 1, queries.size
+    assert_select "span", text: "Aggregated Feature"
+    assert_select "dd", text: "movie (1)"
+  end
+
   test "hides player and ip history columns when there is no stored data" do
     PlexStreamEvent.create!(
       machine_identifier: "machine-one",
@@ -198,7 +215,7 @@ class UsersControllerTest < ActionDispatch::IntegrationTest
       media_type: "episode"
     )
 
-    get user_path("42")
+    get_content user_path("42")
 
     assert_response :success
     assert_select "td", text: "Taskmaster - The Noise That Blue Makes"
@@ -232,7 +249,7 @@ class UsersControllerTest < ActionDispatch::IntegrationTest
       view_offset: 950
     )
 
-    get users_path(q: "owner")
+    get_content users_path(q: "owner")
 
     assert_response :success
     assert_select "td", text: "owner"
@@ -240,7 +257,7 @@ class UsersControllerTest < ActionDispatch::IntegrationTest
     assert_select "span", text: "Local history"
     assert_select "p", text: "1 user shown"
 
-    get user_path("owner-one")
+    get_content user_path("owner-one")
 
     assert_response :success
     assert_select "h1", "owner"
@@ -260,7 +277,7 @@ class UsersControllerTest < ActionDispatch::IntegrationTest
       media_type: "movie"
     )
 
-    get users_path(q: "old-account")
+    get_content users_path(q: "old-account")
     assert_response :success
     assert_select "td", text: "Account old-account"
 
@@ -275,13 +292,13 @@ class UsersControllerTest < ActionDispatch::IntegrationTest
     assert_equal "user_suppressed", log.action
     assert_equal "suppressed old-account", log.summary
 
-    get users_path(q: "old-account")
+    get_content users_path(q: "old-account")
     assert_response :success
     assert_select "td", text: "Account old-account", count: 0
     assert_select "p", text: /1 suppressed user/
     assert_select "a", text: "View suppressed"
 
-    get users_path(status: "suppressed", q: "old-account")
+    get_content users_path(status: "suppressed", q: "old-account")
     assert_response :success
     assert_select "td", text: "Account old-account"
     assert_select "span", text: "Suppressed"
@@ -303,7 +320,7 @@ class UsersControllerTest < ActionDispatch::IntegrationTest
       )
     end
 
-    get user_path("42")
+    get_content user_path("42")
 
     assert_response :success
     assert_select "turbo-frame#stream_history"
@@ -312,9 +329,11 @@ class UsersControllerTest < ActionDispatch::IntegrationTest
     assert_select "td", text: "History Item 26", count: 0
     assert_select "a[data-turbo-frame='stream_history']", text: "Next"
 
-    get user_path("42", stream_page: 2)
+    get user_path("42", stream_page: 2), headers: { "Turbo-Frame" => "stream_history" }
 
     assert_response :success
+    assert_select "turbo-frame#stream_history", count: 1
+    assert_select "turbo-frame#page-content[src]", count: 0
     assert_select "p", text: /Showing 26-30 of 30/
     assert_select "td", text: "History Item 26"
     assert_select "td", text: "History Item 1", count: 0
@@ -339,9 +358,11 @@ class UsersControllerTest < ActionDispatch::IntegrationTest
       media_type: "episode"
     )
 
-    get user_path("42", stream_q: "match", stream_type: "movie")
+    get user_path("42", stream_q: "match", stream_type: "movie"), headers: { "Turbo-Frame" => "stream_history" }
 
     assert_response :success
+    assert_select "turbo-frame#stream_history", count: 1
+    assert_select "turbo-frame#page-content[src]", count: 0
     assert_select "td", text: "Movie Match"
     assert_select "td", text: "Episode Miss", count: 0
     assert_select "p", text: /Showing 1-1 of 1/
@@ -354,8 +375,24 @@ class UsersControllerTest < ActionDispatch::IntegrationTest
     assert_not_includes @response.body, "Episode Miss"
   end
 
+  test "nested history requests do not compute dashboard statistics" do
+    original_statistics = Plex::UsageStatistics.method(:new)
+    Plex::UsageStatistics.define_singleton_method(:new) { |**_| raise "History-only requests must not compute statistics" }
+
+    get user_path("42", stream_q: "no-match"), headers: { "Turbo-Frame" => "stream_history" }
+
+    assert_response :success
+    assert_select "turbo-frame#stream_history", count: 1
+    assert_select "turbo-frame#page-content", count: 0
+    assert_select "h1", count: 0
+    assert_select "p", text: "No stream history matches those filters."
+    assert_no_match(/<!DOCTYPE|<html[ >]/i, response.body)
+  ensure
+    Plex::UsageStatistics.define_singleton_method(:new, original_statistics) if original_statistics
+  end
+
   test "filters users by search and notes" do
-    get users_path(q: "viewer", notes: "with")
+    get_content users_path(q: "viewer", notes: "with")
 
     assert_response :success
     assert_select "td", text: "viewer@example.com"
@@ -370,7 +407,7 @@ class UsersControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "shows empty filtered state" do
-    get users_path(q: "not-a-real-user")
+    get_content users_path(q: "not-a-real-user")
 
     assert_response :success
     assert_select "p", text: "No users match those filters."
@@ -395,7 +432,7 @@ class UsersControllerTest < ActionDispatch::IntegrationTest
       fetched_at: Time.current
     )
 
-    get users_path
+    get_content users_path
 
     assert_response :success
     assert_select "h2", "Pending Invites"
@@ -426,7 +463,7 @@ class UsersControllerTest < ActionDispatch::IntegrationTest
       fetched_at: Time.current
     )
 
-    get "/users/plextest@wjr.us"
+    get_content "/users/plextest@wjr.us"
 
     assert_response :success
     assert_select "h1", "plextest"
@@ -453,7 +490,7 @@ class UsersControllerTest < ActionDispatch::IntegrationTest
     end
 
     with_plex_client(client) do
-      get "/users/plextest@wjr.us"
+      get_content "/users/plextest@wjr.us"
     end
 
     assert_response :success
@@ -471,6 +508,16 @@ class UsersControllerTest < ActionDispatch::IntegrationTest
     assert_includes @response.media_type, "text/csv"
     assert_includes @response.body, "name,username,email,status"
     assert_includes @response.body, "viewer,viewer,viewer@example.com,accepted"
+  end
+
+  test "CSV remains a direct download even when a frame header is supplied" do
+    get_content users_path(format: :csv)
+
+    assert_response :success
+    assert_equal "text/csv", response.media_type
+    assert_includes response.headers["Content-Disposition"], "attachment"
+    assert_includes response.body, "viewer,viewer,viewer@example.com,accepted"
+    assert_not_includes response.body, "<turbo-frame"
   end
 
   test "streams complete history in bounded batches without building dashboard statistics" do
@@ -511,7 +558,7 @@ class UsersControllerTest < ActionDispatch::IntegrationTest
       client.define_singleton_method(:requested_invites) { [ invite ] }
       with_plex_client(client) do
         assert_no_difference "ShareSnapshot.count" do
-          get user_path("someone@example.com")
+          get_content user_path("someone@example.com")
         end
       end
 
@@ -521,7 +568,7 @@ class UsersControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "missing users return not found for both HTML and CSV" do
-    get user_path("missing-user")
+    get_content user_path("missing-user")
     assert_response :not_found
     assert_select "h1", "User unavailable"
 

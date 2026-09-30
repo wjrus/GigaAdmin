@@ -42,15 +42,6 @@ class PlexStreamEvent < ApplicationRecord
     completed_play_scope(scope.video.in_active_libraries(library_titles: library_titles, library_ids: library_ids))
   end
 
-  def self.activity_counts(scope, bucket:)
-    raise ArgumentError, "Unsupported activity bucket" unless %w[day month].include?(bucket)
-
-    expression = Arel.sql(sanitize_sql_array([
-      "date_trunc(:bucket, viewed_at AT TIME ZONE 'UTC' AT TIME ZONE :zone)::date", bucket: bucket, zone: Time.zone.tzinfo.name
-    ]))
-    scope.reorder(nil).group(expression).count
-  end
-
   def library_identifier
     library_title.presence || metadata_value(:library_section_id).presence || "unknown"
   end
