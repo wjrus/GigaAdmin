@@ -67,6 +67,14 @@ observations may be missed. Missing or failed observations are gaps, not zero
 usage. Plex's bandwidth figures are estimates, not measured network throughput
 or monthly transfer totals.
 
+Activity charts use smooth curves through the observed bucket peaks without
+overshooting adjacent values. Smoothing changes only the drawing: tooltips,
+the data table, and peak summaries retain the original values, and gaps remain
+disconnected.
+Hover anywhere in a plot or tap it to inspect that bucket's timestamp, values
+for every line, and poll count. Focus the chart and use the arrow keys or
+Home/End to inspect samples with a keyboard; Escape dismisses the tooltip.
+
 Activity samples are kept for 90 days by default and pruned daily. Set
 `PLEX_ACTIVITY_ENABLED=false` to stop collection, or change
 `PLEX_ACTIVITY_RETENTION_DAYS` to adjust retention. Existing detailed samples

@@ -1,5 +1,34 @@
 @import "tailwindcss";
 
+.activity-chart svg {
+  cursor: crosshair;
+}
+
+.activity-chart svg:focus-visible {
+  outline: 2px solid var(--theme-focus);
+  outline-offset: -2px;
+}
+
+.activity-chart-tooltip {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: max-content;
+  max-width: calc(100vw - 1rem);
+  max-height: calc(100dvh - 1rem);
+  overflow: auto;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--theme-border);
+  border-radius: 0.375rem;
+  background: var(--theme-panel-strong);
+  color: var(--theme-text);
+  box-shadow: var(--theme-shadow);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  font-variant-numeric: tabular-nums;
+  white-space: pre-line;
+}
+
 :root {
   color-scheme: light;
   --theme-bg: #fafaf8;
