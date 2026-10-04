@@ -3,14 +3,13 @@ require "test_helper"
 class ActivityChartsHelperTest < ActionView::TestCase
   include ActivityChartsHelper
 
-  test "separates SVG line segments across unobserved buckets and labels observations" do
+  test "connects an interior gap with an estimated sample" do
     document = render_chart([ 0, nil, 4 ])
-    assert_equal 2, document.css("path").size
-    assert_equal 2, document.css("circle").size
-    assert document.css("circle").all? { |circle| circle["opacity"] == "1" }
-    assert document.css("path").all? { |path| path["d"].match?(/\AM [\d.,]+\z/) }
+    assert_equal 1, document.css("path").size
+    assert_equal 3, document.css("circle").size
+    assert document.css("circle").all? { |circle| circle["opacity"] == "0" }
     assert_equal "img", document.at_css("svg")["role"]
-    assert_includes document.css("circle title").map(&:text), "Sep 29 12:00 UTC: All streams 0 streams; 1 polls"
+    assert_includes document.css("circle title").map(&:text), "Sep 29, 2026 12:10 UTC\nAll streams: 2 (estimated)\n0 polls"
   end
 
   test "smooth curves pass through the original samples and keep their tooltips" do
@@ -25,7 +24,7 @@ class ActivityChartsHelperTest < ActionView::TestCase
     document.css("circle").drop(1).zip(curves).each do |circle, (curve)|
       assert_equal [ circle["cx"].to_f, circle["cy"].to_f ], curve.split.last.split(",").map(&:to_f)
     end
-    assert_includes document.css("circle title").map(&:text), "Sep 29 12:20 UTC: All streams 8 streams; 1 polls"
+    assert_includes document.css("circle title").map(&:text), "Sep 29, 2026 12:20 UTC\nAll streams: 8\n1 poll"
   end
 
   test "curves stay within adjacent sample values even around spikes plateaus and zeroes" do
@@ -50,12 +49,18 @@ class ActivityChartsHelperTest < ActionView::TestCase
     end
   end
 
-  test "two observations use a straight segment and flat unknown runs stay disconnected" do
-    document = render_chart([ nil, 0, 0, nil, nil, 3, 1, nil ])
+  test "two observations use a straight segment and unknown edges stay empty" do
+    document = render_chart([ nil, 0, 3, nil ])
 
-    assert_equal 2, document.css("path").size
+    assert_equal 1, document.css("path").size
     assert document.css("path").all? { |path| path["d"].include?(" L ") }
-    assert_equal 4, document.css("circle").size
+    assert_equal 2, document.css("circle").size
+  end
+
+  test "an isolated observation remains visible without an invented line" do
+    document = render_chart([ nil, 0, nil ])
+    assert_equal "1", document.at_css("circle")["opacity"]
+    assert_match(/\AM [\d.,]+\z/, document.at_css("path")["d"])
   end
 
   test "unknown data renders no curves or observations" do
@@ -68,12 +73,24 @@ class ActivityChartsHelperTest < ActionView::TestCase
     document = render_chart([ 0, nil, 4 ])
     points = JSON.parse(document.at_css("[data-controller=activity-chart]")["data-activity-chart-points-value"])
 
-    assert_equal "Sep 29, 2026 12:00 UTC\nAll streams: 0 streams\n1 poll", points.first
-    assert_equal "Sep 29, 2026 12:10 UTC\nAll streams: Not observed\n0 polls", points.second
+    assert_equal "Sep 29, 2026 12:00 UTC\nAll streams: 0\n1 poll", points.first
+    assert_equal "Sep 29, 2026 12:10 UTC\nAll streams: 2 (estimated)\n0 polls", points.second
     assert_equal "0", document.at_css("svg")["tabindex"]
     assert_equal "concurrency-tooltip", document.at_css("svg")["aria-describedby"]
     assert_equal "manual", document.at_css("[role=tooltip]")["popover"]
     assert document.at_css("rect[data-activity-chart-target=plot]")
+  end
+
+  test "tooltips use concise counts and mark fractional estimates without rounding observations" do
+    text = activity_chart_tooltip({ at: Time.utc(2026, 10, 3), total: 1000, transcode: 1.5, samples: 2, estimated: [ :transcode ] },
+      { total: { label: "All streams" }, transcode: { label: "Transcodes" } }, "streams")
+    assert_includes text, "All streams: 1,000\nTranscodes: 1.5 (estimated)"
+    refute_includes text, "1,000 streams"
+
+    document = render_chart([ nil, 1, nil ])
+    points = JSON.parse(document.at_css("[data-controller=activity-chart]")["data-activity-chart-points-value"])
+    assert_includes points.first, "All streams: Not observed"
+    assert_includes points.last, "All streams: Not observed"
   end
 
   test "bandwidth tooltips distinguish complete bandwidth polls from total polls" do
@@ -87,9 +104,9 @@ class ActivityChartsHelperTest < ActionView::TestCase
   private
 
   def render_chart(values)
-    chart = Struct.new(:points) do
-      def peak(key)
-        points.filter_map { |point| point[key] }.max
+    chart = Class.new(Plex::ActivityChart) do
+      def initialize(points)
+        @points = points
       end
     end.new(values.each_with_index.map do |value, index|
       { at: Time.utc(2026, 9, 29, 12) + index * 10.minutes, total: value, samples: value.nil? ? 0 : 1 }

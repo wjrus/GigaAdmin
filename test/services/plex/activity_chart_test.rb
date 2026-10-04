@@ -98,6 +98,67 @@ class Plex::ActivityChartTest < ActiveSupport::TestCase
     assert_not Plex::ActivityChart.new(machine_identifier: "stale-machine", now: @now).stale?
   end
 
+  test "display gaps interpolate between neighboring observations without changing stored values or summaries" do
+    record("interpolated", @now - 50.minutes, total: 0)
+    record("interpolated", @now - 10.minutes, total: 6)
+    chart = Plex::ActivityChart.new(machine_identifier: "interpolated", now: @now)
+    original = chart.points.deep_dup
+    displayed = chart.display_points.last(6)
+
+    assert_equal [ 0, 1.5, 3.0, 4.5, 6, nil ], displayed.map { |point| point[:total] }
+    assert_empty displayed.first[:estimated]
+    assert_includes displayed.second[:estimated], :total
+    assert_equal 0, displayed.second[:samples]
+    assert_nil chart.display_points.first[:total]
+    assert_nil displayed.last[:total]
+    assert_empty displayed.last[:estimated]
+    assert_equal original, chart.points
+    assert_equal 2, chart.sample_count
+    assert_equal 6, chart.peak(:total)
+    assert_same chart.display_points, chart.display_points
+  end
+
+  test "a single missing bucket averages its neighbors independently for each series" do
+    record("partial", @now - 20.minutes, total: 2, transcode: 0, bandwidth_sessions: 2, bandwidth: 1000)
+    record("partial", @now - 10.minutes, total: 3, transcode: 1, bandwidth_sessions: 1, bandwidth: 5000)
+    record("partial", @now, total: 4, transcode: 2, bandwidth_sessions: 4, bandwidth: 12000)
+    chart = Plex::ActivityChart.new(machine_identifier: "partial", now: @now)
+    point = chart.display_points[-2]
+
+    assert_equal 3, point[:total]
+    assert_equal 6.5, point[:bandwidth]
+    assert_equal [ :bandwidth ], point[:estimated]
+    assert_equal 0, point[:bandwidth_samples]
+    assert_equal 1, point[:samples]
+    assert_nil chart.points[-2][:bandwidth]
+  end
+
+  test "unknown and single observation series cannot invent estimates" do
+    chart = Plex::ActivityChart.new(machine_identifier: "empty", now: @now)
+    assert chart.display_points.all? { |point| point[:total].nil? && point[:estimated].empty? }
+
+    record("single", @now - 30.minutes, total: 0)
+    chart = Plex::ActivityChart.new(machine_identifier: "single", now: @now)
+    assert_equal [ 0 ], chart.display_points.filter_map { |point| point[:total] }
+    assert chart.display_points.all? { |point| point[:estimated].empty? }
+  end
+
+  test "movie and TV bucket peaks preserve legacy unknowns and observed idle zeroes" do
+    record("media", @now - 30.minutes, total: 5)
+    PlexActivitySample.record_sessions!("media", [], sampled_at: @now - 20.minutes)
+    PlexActivitySample.record_sessions!("media", [ { type: "movie" }, { type: "movie" }, { type: "episode" } ], sampled_at: @now - 1.minute)
+    PlexActivitySample.record_sessions!("media", [ { type: "episode" }, { type: "episode" }, { type: "track" } ], sampled_at: @now)
+    chart = Plex::ActivityChart.new(machine_identifier: "media", now: @now)
+
+    assert_equal [ nil, 0, nil, 2 ], chart.points.last(4).map { |point| point[:movies] }
+    assert_equal [ nil, 0, 1.0, 2 ], chart.display_points.last(4).map { |point| point[:movies] }
+    assert_equal 2, chart.peak(:movies)
+    assert_equal 2, chart.peak(:tv)
+    assert_equal 2, chart.points.last[:samples]
+    assert_equal [ :movies, :tv ], chart.display_points[-2][:estimated].intersection([ :movies, :tv ])
+    assert_nil chart.display_points[-4][:tv]
+  end
+
   private
 
   def record(machine, at, total: 0, transcode: 0, direct_play: 0, bandwidth_sessions: 0, bandwidth: 0)

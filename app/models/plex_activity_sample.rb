@@ -23,11 +23,14 @@ class PlexActivitySample < ApplicationRecord
     counts = {
       total_sessions: sessions.size, playing_sessions: 0, paused_sessions: 0,
       transcode_sessions: 0, direct_play_sessions: 0, direct_stream_sessions: 0,
-      unknown_sessions: 0, bandwidth_sessions: 0, bandwidth_kbps: 0
+      unknown_sessions: 0, bandwidth_sessions: 0, bandwidth_kbps: 0,
+      movie_sessions: 0, episode_sessions: 0
     }
     sessions.each do |stream|
       counts[:playing_sessions] += 1 if Plex::StreamFormatter.playing?(stream)
       counts[:paused_sessions] += 1 if Plex::StreamFormatter.paused?(stream)
+      counts[:movie_sessions] += 1 if stream[:type] == "movie"
+      counts[:episode_sessions] += 1 if stream[:type] == "episode"
       counts["#{delivery_method(stream)}_sessions".to_sym] += 1
       bandwidth = Integer(stream.dig(:session, :bandwidth), exception: false)
       if bandwidth && bandwidth >= 0

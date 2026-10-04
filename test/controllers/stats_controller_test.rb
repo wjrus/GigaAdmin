@@ -94,6 +94,20 @@ class StatsControllerTest < ActionDispatch::IntegrationTest
     assert_select "p", text: "2"
   end
 
+  test "server activity has four charts with media types instead of explanatory paragraphs" do
+    PlexActivitySample.record_sessions!("machine-one", [ { type: "movie" }, { type: "episode" } ])
+
+    get_content stats_path
+
+    assert_response :success
+    assert_select "[data-controller=activity-chart]", count: 4
+    assert_select "h3", "Movies vs. TV"
+    assert_select "th", text: "Movies"
+    assert_select "th", text: "TV"
+    assert_select "p", text: /Each point is the observed peak/, count: 0
+    assert_select "p", text: /Bandwidth is Plex's estimate/, count: 0
+  end
+
   test "all time charts do not instantiate event records" do
     PlexStreamEvent.create!(machine_identifier: "machine-one", account_id: "42", library_title: "Movies",
       media_type: "movie", duration: 1000, view_offset: 950, viewed_at: Time.current)

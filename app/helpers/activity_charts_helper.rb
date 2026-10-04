@@ -1,5 +1,6 @@
 module ActivityChartsHelper
   def activity_chart_svg(chart, series:, unit:, title:)
+    points = chart.display_points
     width = 720.0
     height = 180.0
     left = 48.0
@@ -20,16 +21,16 @@ module ActivityChartsHelper
     end
     series.each do |key, options|
       segments = [ [] ]
-      chart.points.each_with_index do |point, index|
+      points.each_with_index do |point, index|
         if point[key].nil?
           segments << [] unless segments.last.empty?
           next
         end
-        x = left + plot_width * index / [ chart.points.size - 1, 1 ].max
+        x = left + plot_width * index / [ points.size - 1, 1 ].max
         y = top + plot_height * (1 - point[key].to_f / maximum)
         segments.last << [ x, y ]
-        isolated = (index.zero? || chart.points[index - 1][key].nil?) && chart.points[index + 1]&.dig(key).nil?
-        tooltip = "#{point[:at].strftime('%b %-d %H:%M UTC')}: #{options[:label]} #{point[key]} #{unit}; #{point[:samples]} polls"
+        isolated = (index.zero? || points[index - 1][key].nil?) && points[index + 1]&.dig(key).nil?
+        tooltip = activity_chart_tooltip(point, { key => options }, unit)
         elements << content_tag(:circle, content_tag(:title, tooltip), cx: x.round(2), cy: y.round(2), r: 2,
           fill: options[:color], opacity: isolated ? 1 : 0)
       end
@@ -38,7 +39,7 @@ module ActivityChartsHelper
           "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round")
       end
     end
-    [ [ chart.points.first, left, "start" ], [ chart.points.last, width - 12, "end" ] ].each do |point, x, anchor|
+    [ [ points.first, left, "start" ], [ points.last, width - 12, "end" ] ].each do |point, x, anchor|
       elements << content_tag(:text, point[:at].strftime("%b %-d %H:%M UTC"), x: x, y: height - 4,
         "text-anchor": anchor, fill: "currentColor", "font-size": 11)
     end
@@ -53,7 +54,7 @@ module ActivityChartsHelper
     tooltip = content_tag(:div, nil, id: tooltip_id, role: "tooltip", hidden: true, popover: "manual",
       class: "activity-chart-tooltip", aria: { live: "polite", atomic: true }, data: { activity_chart_target: "tooltip" })
     content_tag(:div, safe_join([ svg, tooltip ]), class: "activity-chart", data: { controller: "activity-chart",
-      activity_chart_points_value: chart.points.map { |point| activity_chart_tooltip(point, series, unit) }.to_json,
+      activity_chart_points_value: points.map { |point| activity_chart_tooltip(point, series, unit) }.to_json,
       action: "pointerenter->activity-chart#cancelHide pointerleave->activity-chart#leave pointerdown@window->activity-chart#dismissOutside scroll@window->activity-chart#hide:capture resize@window->activity-chart#hide keydown.esc@window->activity-chart#hide" })
   end
 
@@ -63,11 +64,11 @@ module ActivityChartsHelper
     values = series.map do |key, options|
       value = if point[key].nil?
         "Not observed"
-      elsif unit == "streams"
-        pluralize(point[key], "stream")
       else
-        "#{point[key]} #{unit}"
+        number = number_with_precision(point[key], precision: 2, strip_insignificant_zeros: true, delimiter: ",")
+        unit == "streams" ? number : "#{number} #{unit}"
       end
+      value += " (estimated)" if Array(point[:estimated]).include?(key)
       "#{options[:label]}: #{value}"
     end
     polls = point[:bandwidth_samples].to_i if unit == "Mbps"

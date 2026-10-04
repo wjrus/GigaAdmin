@@ -13,11 +13,11 @@ class PlexActivitySampleTest < ActiveSupport::TestCase
 
   test "records only aggregate playback counts with selected media and partial bandwidth" do
     sessions = [
-      { user: { title: "Private viewer" }, title: "Private title", player: { state: "playing", address: "192.0.2.1" },
+      { type: "movie", user: { title: "Private viewer" }, title: "Private title", player: { state: "playing", address: "192.0.2.1" },
         session: { bandwidth: "12000" }, media: { video_decision: "directplay", audio_decision: "directplay" } },
-      { player: { state: "PLAYING" }, session: { bandwidth: "8000" },
+      { type: "episode", player: { state: "PLAYING" }, session: { bandwidth: "8000" },
         transcode_session: { video_decision: "copy", audio_decision: "transcode" } },
-      { player: { state: "paused" }, session: { bandwidth: nil },
+      { type: "episode", player: { state: "paused" }, session: { bandwidth: nil },
         media: [ { selected: "0", video_decision: "transcode" }, { selected: "1", part: [ { decision: "copy" } ] } ] },
       { player: { state: "buffering" }, session: { bandwidth: "unknown" } }
     ]
@@ -33,6 +33,8 @@ class PlexActivitySampleTest < ActiveSupport::TestCase
     assert_equal 1, sample.unknown_sessions
     assert_equal 2, sample.bandwidth_sessions
     assert_equal 20_000, sample.bandwidth_kbps
+    assert_equal 1, sample.movie_sessions
+    assert_equal 2, sample.episode_sessions
     assert_not_includes sample.attributes.to_json, "Private"
     assert_not_includes sample.attributes.to_json, "192.0.2.1"
   end
@@ -42,6 +44,8 @@ class PlexActivitySampleTest < ActiveSupport::TestCase
     assert_equal 0, idle.total_sessions
     assert_equal 0, idle.bandwidth_sessions
     assert_equal 0, idle.bandwidth_kbps
+    assert_equal 0, idle.movie_sessions
+    assert_equal 0, idle.episode_sessions
 
     sample = PlexActivitySample.record_sessions!("unknown-bandwidth", [
       { session: { bandwidth: "-1" } }, { session: { bandwidth: "" } }, {}, { session: { bandwidth: "0" } }
@@ -49,6 +53,17 @@ class PlexActivitySampleTest < ActiveSupport::TestCase
     assert_equal 4, sample.unknown_sessions
     assert_equal 1, sample.bandwidth_sessions
     assert_equal 0, sample.bandwidth_kbps
+  end
+
+  test "media counters exclude audio and unknown types without treating legacy samples as zero" do
+    sample = PlexActivitySample.record_sessions!("media-machine", [ { type: "track" }, { type: "clip" }, {} ])
+    assert_equal 3, sample.total_sessions
+    assert_equal 0, sample.movie_sessions
+    assert_equal 0, sample.episode_sessions
+
+    legacy = PlexActivitySample.create!(machine_identifier: "legacy-machine", sampled_at: Time.current)
+    assert_nil legacy.movie_sessions
+    assert_nil legacy.episode_sessions
   end
 
   test "one sample per machine and minute prevents retries from multiplying observations" do

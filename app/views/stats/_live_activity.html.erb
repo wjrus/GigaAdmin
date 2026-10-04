@@ -31,7 +31,8 @@
       <% charts = [
         { title: "Concurrent Streams", unit: "streams", series: { total: { label: "All streams", color: "var(--chart-stream)" }, transcode: { label: "Transcodes", color: "var(--chart-transcode)" } } },
         { title: "Delivery Methods", unit: "streams", series: { direct_play: { label: "Direct play", color: "var(--chart-direct-play)" }, direct_stream: { label: "Direct stream", color: "var(--chart-direct-stream)" }, unknown: { label: "Unknown", color: "var(--chart-unknown)" } } },
-        { title: "Estimated Bandwidth", unit: "Mbps", series: { bandwidth: { label: "Plex bandwidth estimate", color: "var(--chart-stream)" } } }
+        { title: "Estimated Bandwidth", unit: "Mbps", series: { bandwidth: { label: "Plex bandwidth estimate", color: "var(--chart-stream)" } } },
+        { title: "Movies vs. TV", unit: "streams", series: { movies: { label: "Movies", color: "var(--chart-transcode)" }, tv: { label: "TV", color: "var(--chart-direct-stream)" } } }
       ] %>
       <% charts.each do |chart| %>
         <div class="min-w-0">
@@ -46,20 +47,16 @@
           </div>
         </div>
       <% end %>
-      <div class="text-sm leading-6 text-zinc-400">
-        <p>Each point is the observed peak within a <%= @live_activity.bucket_seconds / 60 %>-minute bucket. Buckets with no successful polls remain gaps; successful idle polls record zero. Short sessions between polls can be missed.</p>
-        <p class="mt-3">Bandwidth is Plex's estimate, including paused sessions, rather than measured network throughput. Polls missing a session's bandwidth are excluded from that graph. Delivery-method peaks are independent and may occur at different times within a bucket.</p>
-      </div>
     </div>
     <details class="mt-5 text-sm text-zinc-400">
       <summary class="cursor-pointer text-cyan-300">View chart data</summary>
       <div class="mt-3 overflow-x-auto">
         <table class="w-full text-left text-xs">
           <caption class="pb-2 text-left">Bucket peaks; a dash means no observation. Times are UTC.</caption>
-          <thead><tr><% ["Bucket", "Polls", "Streams", "Transcodes", "Direct play", "Direct stream", "Unknown", "Mbps", "Bandwidth polls"].each do |label| %><th scope="col" class="p-2"><%= label %></th><% end %></tr></thead>
+          <thead><tr><% ["Bucket", "Polls", "Streams", "Transcodes", "Direct play", "Direct stream", "Unknown", "Mbps", "Bandwidth polls", "Movies", "TV"].each do |label| %><th scope="col" class="p-2"><%= label %></th><% end %></tr></thead>
           <tbody>
             <% @live_activity.points.each do |point| %>
-              <tr><th scope="row" class="p-2 font-normal whitespace-nowrap"><%= point[:at].strftime("%b %-d %H:%M") %></th><% [:samples, :total, :transcode, :direct_play, :direct_stream, :unknown, :bandwidth, :bandwidth_samples].each do |key| %><td class="p-2"><%= point[key].nil? ? "—" : point[key] %></td><% end %></tr>
+              <tr><th scope="row" class="p-2 font-normal whitespace-nowrap"><%= point[:at].strftime("%b %-d, %Y %H:%M") %></th><% [:samples, :total, :transcode, :direct_play, :direct_stream, :unknown, :bandwidth, :bandwidth_samples, :movies, :tv].each do |key| %><td class="p-2"><%= point[key].nil? ? "—" : point[key] %></td><% end %></tr>
             <% end %>
           </tbody>
         </table>

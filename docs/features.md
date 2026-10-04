@@ -57,7 +57,7 @@ tabs and stops when you navigate away.
 
 GigaAdmin's production job worker samples current sessions once per minute for
 the activity graphs in **Stats**. It stores aggregate stream, playback-state,
-and delivery-mode counts, plus the sum of the bandwidth estimates Plex reports.
+delivery-mode, and movie/TV counts, plus the sum of the bandwidth estimates Plex reports.
 These samples contain no usernames, IP addresses, titles, or device details.
 No separate sampler container is needed.
 
@@ -67,10 +67,21 @@ observations may be missed. Missing or failed observations are gaps, not zero
 usage. Plex's bandwidth figures are estimates, not measured network throughput
 or monthly transfer totals.
 
-Activity charts use smooth curves through the observed bucket peaks without
-overshooting adjacent values. Smoothing changes only the drawing: tooltips,
-the data table, and peak summaries retain the original values, and gaps remain
-disconnected.
+Activity charts show independent peaks within 10-minute, hourly, or six-hour
+buckets, depending on the selected period. They use smooth curves without
+overshooting adjacent values. Interior gaps are linearly interpolated between
+the nearest observed values on either side, with tooltip values marked
+**estimated** and the original poll count retained. Leading and trailing gaps
+remain unobserved. Stored samples, the data table, coverage, and peak summaries
+are unchanged; interpolation is only a display estimate, including across longer
+outages. Bandwidth peaks exclude polls missing any session's bandwidth.
+
+**Movies vs. TV** compares concurrent movie and episode sessions, including
+paused sessions and excluding audio/other media types. These counters start
+collecting after the media-type upgrade; older aggregate samples remain unknown,
+not zero, and cannot be backfilled from playback history. Each series shows its
+own bucket peak, so movie/TV or delivery-method peaks need not add up to the
+concurrent-stream peak.
 Hover anywhere in a plot or tap it to inspect that bucket's timestamp, values
 for every line, and poll count. Focus the chart and use the arrow keys or
 Home/End to inspect samples with a keyboard; Escape dismisses the tooltip.
